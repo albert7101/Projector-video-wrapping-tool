@@ -77,6 +77,7 @@ export default function App() {
   const [nextZIndex, setNextZIndex] = useState(1);
   const [isLocked, setIsLocked] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isToolbarVisible, setIsToolbarVisible] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -182,11 +183,11 @@ export default function App() {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-screen bg-black overflow-hidden font-sans text-white select-none">
-      {/* Background Grid */}
-      <div className="absolute inset-0 opacity-5 pointer-events-none" 
-           style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
-
+    <div 
+      ref={containerRef} 
+      className="relative w-full h-screen bg-black overflow-hidden font-sans text-white select-none"
+      onClick={() => setIsToolbarVisible(!isToolbarVisible)}
+    >
       {/* Canvas Area */}
       <div className="relative w-full h-full">
         <AnimatePresence>
@@ -195,6 +196,7 @@ export default function App() {
               key={video.id}
               video={video}
               isLocked={isLocked}
+              containerRef={containerRef}
               onRemove={() => removeVideo(video.id)}
               onReset={() => resetVideo(video.id)}
               onUpdate={(updates) => updateVideo(video.id, updates)}
@@ -205,57 +207,68 @@ export default function App() {
       </div>
 
       {/* Controls Overlay */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 p-4 rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.5)] z-[9999]">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-2xl font-bold hover:bg-zinc-200 transition-all active:scale-95 shadow-lg"
-        >
-          <Plus size={24} strokeWidth={3} />
-          <span>Add Video</span>
-        </button>
-        
-        <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
-        
-        <button
-          onClick={() => setIsLocked(!isLocked)}
-          className={`p-3 rounded-2xl transition-all active:scale-90 ${isLocked ? 'bg-amber-500 text-black shadow-[0_0_20px_rgba(245,158,11,0.4)]' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
-          title={isLocked ? "Unlock Layout" : "Lock Layout"}
-        >
-          {isLocked ? <Lock size={24} /> : <Unlock size={24} />}
-        </button>
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        accept="video/*"
+        multiple
+        className="hidden"
+      />
 
-        <button
-          onClick={() => confirm('Clear all videos?') && setVideos([])}
-          className="p-3 bg-zinc-800 text-zinc-400 hover:text-red-400 rounded-2xl transition-all active:scale-90"
-          title="Clear All"
-        >
-          <Trash2 size={24} />
-        </button>
+      <AnimatePresence>
+        {isToolbarVisible && (
+          <motion.div 
+            initial={{ y: 100, x: '-50%', opacity: 0 }}
+            animate={{ y: 0, x: '-50%', opacity: 1 }}
+            exit={{ y: 100, x: '-50%', opacity: 0 }}
+            style={{ left: '50%' }}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-8 flex items-center gap-4 bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 p-4 rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.5)] z-[9999]"
+          >
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-2xl font-bold hover:bg-zinc-200 transition-all active:scale-95 shadow-lg"
+            >
+              <Plus size={24} strokeWidth={3} />
+              <span>Add Video</span>
+            </button>
+            
+            <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
+            
+            <button
+              onClick={() => setIsLocked(!isLocked)}
+              className={`p-3 rounded-2xl transition-all active:scale-90 ${isLocked ? 'bg-amber-500 text-black shadow-[0_0_20px_rgba(245,158,11,0.4)]' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+              title={isLocked ? "Unlock Layout" : "Lock Layout"}
+            >
+              {isLocked ? <Lock size={24} /> : <Unlock size={24} />}
+            </button>
 
-        <button
-          onClick={toggleFullscreen}
-          className={`p-3 rounded-2xl transition-all active:scale-90 ${isFullscreen ? 'bg-zinc-100 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
-          title="Toggle Fullscreen"
-        >
-          <Maximize2 size={24} />
-        </button>
+            <button
+              onClick={() => confirm('Clear all videos?') && setVideos([])}
+              className="p-3 bg-zinc-800 text-zinc-400 hover:text-red-400 rounded-2xl transition-all active:scale-90"
+              title="Clear All"
+            >
+              <Trash2 size={24} />
+            </button>
 
-        <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
-        
-        <div className="flex flex-col items-center px-2">
-          <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Active</span>
-          <span className="text-xl font-mono font-bold leading-none">{videos.length}</span>
-        </div>
-        
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileUpload}
-          accept="video/*"
-          multiple
-          className="hidden"
-        />
-      </div>
+            <button
+              onClick={toggleFullscreen}
+              className={`p-3 rounded-2xl transition-all active:scale-90 ${isFullscreen ? 'bg-zinc-100 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+              title="Toggle Fullscreen"
+            >
+              <Maximize2 size={24} />
+            </button>
+
+            <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
+            
+            <div className="flex flex-col items-center px-2">
+              <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Active</span>
+              <span className="text-xl font-mono font-bold leading-none">{videos.length}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Empty State */}
       {videos.length === 0 && (
@@ -283,13 +296,14 @@ export default function App() {
 interface VideoPlayerProps {
   video: VideoItem;
   isLocked: boolean;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   onRemove: () => void;
   onReset: () => void;
   onUpdate: (updates: Partial<VideoItem>) => void;
   onFocus: () => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ video, isLocked, onRemove, onReset, onUpdate, onFocus }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ video, isLocked, containerRef, onRemove, onReset, onUpdate, onFocus }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isHovered, setIsHovered] = useState(false);
   const [activeHandle, setActiveHandle] = useState<number | null>(null);
@@ -339,8 +353,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ video, isLocked, onRemove, on
       const clientX = 'touches' in moveEvent ? moveEvent.touches[0].clientX : moveEvent.clientX;
       const clientY = 'touches' in moveEvent ? moveEvent.touches[0].clientY : moveEvent.clientY;
       
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const x = clientX - rect.left;
+      const y = clientY - rect.top;
+      
       const newCorners = [...video.corners] as [Point, Point, Point, Point];
-      newCorners[index] = { x: clientX, y: clientY };
+      newCorners[index] = { x, y };
       onUpdate({ corners: newCorners });
     };
 
@@ -371,8 +391,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ video, isLocked, onRemove, on
       const currentX = 'touches' in moveEvent ? moveEvent.touches[0].clientX : moveEvent.clientX;
       const currentY = 'touches' in moveEvent ? moveEvent.touches[0].clientY : moveEvent.clientY;
       
-      const dx = currentX - startX;
-      const dy = currentY - startY;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const x = currentX - rect.left;
+      const y = currentY - rect.top;
+      
+      const dx = x - (startX - rect.left);
+      const dy = y - (startY - rect.top);
 
       const newCorners = initialCorners.map(p => ({
         x: p.x + dx,
@@ -474,11 +500,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ video, isLocked, onRemove, on
           onMouseDown={(e) => handleCornerDrag(i, e)}
           onTouchStart={(e) => handleCornerDrag(i, e)}
           style={{
-            position: 'fixed',
+            position: 'absolute',
             left: p.x,
             top: p.y,
-            width: 32,
-            height: 32,
+            width: 44,
+            height: 44,
             transform: 'translate(-50%, -50%)',
             zIndex: video.zIndex + 10,
             cursor: 'crosshair',
@@ -486,7 +512,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ video, isLocked, onRemove, on
           }}
           className={`group flex items-center justify-center transition-opacity ${isHovered || activeHandle === i ? 'opacity-100' : 'opacity-0'}`}
         >
-          <div className={`w-5 h-5 rounded-full border-2 border-white shadow-lg transition-all ${activeHandle === i ? 'scale-150 bg-amber-500 border-amber-500' : 'bg-white group-hover:scale-125'}`} />
+          <div className={`w-6 h-6 rounded-full border-2 border-white shadow-lg transition-all ${activeHandle === i ? 'scale-150 bg-amber-500 border-amber-500' : 'bg-white group-hover:scale-125'}`} />
           <div className="absolute inset-0 bg-white/20 rounded-full scale-150 blur-md opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
       ))}

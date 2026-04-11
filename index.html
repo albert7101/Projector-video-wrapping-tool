@@ -3,32 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Projector Video Canvas (Standalone)</title>
-    <!-- Tailwind CSS CDN -->
+    <title>Projector Video Canvas</title>
+    <meta name="description" content="Standalone video mapping tool for projectors. Works offline after first load.">
+    <!-- Dependencies (CDNs will be cached by browser for offline use) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React and ReactDOM CDNs -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
     <style>
         body { background-color: black; margin: 0; overflow: hidden; color: white; font-family: sans-serif; }
-        .grid-bg {
-            background-image: linear-gradient(#ffffff05 1px, transparent 1px), linear-gradient(90deg, #ffffff05 1px, transparent 1px);
-            background-size: 50px 50px;
-        }
-        /* Hide scrollbars */
         ::-webkit-scrollbar { display: none; }
-        * { scrollbar-width: none; }
+        * { scrollbar-width: none; -webkit-tap-highlight-color: transparent; }
+        .no-select { user-select: none; -webkit-user-select: none; }
     </style>
 </head>
-<body>
+<body class="bg-black no-select">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useRef, useEffect, useMemo } = React;
+        // Framer Motion UMD exports to window.Motion
+        const { motion, AnimatePresence } = window.Motion || window.FramerMotion || { 
+            motion: { div: "div", button: "button" }, 
+            AnimatePresence: ({children}) => children 
+        };
 
         // --- Math Helper for Perspective Transform ---
         function getPerspectiveTransform(src, dst) {
@@ -72,7 +72,7 @@
         }
 
         // --- Video Player Component ---
-        const VideoPlayer = ({ video, isLocked, onRemove, onReset, onUpdate, onFocus }) => {
+        const VideoPlayer = ({ video, isLocked, containerRef, onRemove, onReset, onUpdate, onFocus }) => {
             const videoRef = useRef(null);
             const [isHovered, setIsHovered] = useState(false);
             const [activeHandle, setActiveHandle] = useState(null);
@@ -109,8 +109,11 @@
                 const onMove = (moveEvent) => {
                     const clientX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
                     const clientY = moveEvent.touches ? moveEvent.touches[0].clientY : moveEvent.clientY;
+                    const rect = containerRef.current.getBoundingClientRect();
+                    const x = clientX - rect.left;
+                    const y = clientY - rect.top;
                     const newCorners = [...video.corners];
-                    newCorners[index] = { x: clientX, y: clientY };
+                    newCorners[index] = { x, y };
                     onUpdate({ corners: newCorners });
                 };
                 const onUp = () => {
@@ -137,8 +140,11 @@
                 const onMove = (moveEvent) => {
                     const currentX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
                     const currentY = moveEvent.touches ? moveEvent.touches[0].clientY : moveEvent.clientY;
-                    const dx = currentX - startX;
-                    const dy = currentY - startY;
+                    const rect = containerRef.current.getBoundingClientRect();
+                    const x = currentX - rect.left;
+                    const y = currentY - rect.top;
+                    const dx = x - (startX - rect.left);
+                    const dy = y - (startY - rect.top);
                     const newCorners = initialCorners.map(p => ({ x: p.x + dx, y: p.y + dy }));
                     onUpdate({ corners: newCorners });
                 };
@@ -181,9 +187,9 @@
                     </div>
                     {!isLocked && video.corners.map((p, i) => (
                         <div key={i} onMouseDown={(e) => handleCornerDrag(i, e)} onTouchStart={(e) => handleCornerDrag(i, e)}
-                             style={{ position: 'fixed', left: p.x, top: p.y, width: 32, height: 32, transform: 'translate(-50%, -50%)', zIndex: video.zIndex + 10, cursor: 'crosshair', pointerEvents: 'auto' }}
+                             style={{ position: 'absolute', left: p.x, top: p.y, width: 44, height: 44, transform: 'translate(-50%, -50%)', zIndex: video.zIndex + 10, cursor: 'crosshair', pointerEvents: 'auto' }}
                              className={`group flex items-center justify-center transition-opacity ${isHovered || activeHandle === i ? 'opacity-100' : 'opacity-0'}`}>
-                            <div className={`w-5 h-5 rounded-full border-2 border-white shadow-lg transition-all ${activeHandle === i ? 'scale-150 bg-amber-500 border-amber-500' : 'bg-white group-hover:scale-125'}`} />
+                            <div className={`w-6 h-6 rounded-full border-2 border-white shadow-lg transition-all ${activeHandle === i ? 'scale-150 bg-amber-500 border-amber-500' : 'bg-white group-hover:scale-125'}`} />
                         </div>
                     ))}
                 </div>
@@ -196,12 +202,13 @@
             const [nextZIndex, setNextZIndex] = useState(1);
             const [isLocked, setIsLocked] = useState(false);
             const [isFullscreen, setIsFullscreen] = useState(false);
+            const [isToolbarVisible, setIsToolbarVisible] = useState(true);
             const fileInputRef = useRef(null);
             const containerRef = useRef(null);
 
             useEffect(() => {
                 lucide.createIcons();
-            }, [videos, isLocked, isFullscreen]);
+            }, [videos, isLocked, isFullscreen, isToolbarVisible]);
 
             const handleFileUpload = (event) => {
                 const files = event.target.files;
@@ -248,24 +255,21 @@
             };
 
             return (
-                <div ref={containerRef} className="relative w-full h-screen bg-black overflow-hidden font-sans text-white select-none">
-                    <div className="absolute inset-0 opacity-5 pointer-events-none grid-bg" />
+                <div ref={containerRef} className="relative w-full h-screen bg-black overflow-hidden font-sans text-white select-none"
+                     onClick={() => setIsToolbarVisible(!isToolbarVisible)}>
                     {videos.length === 0 && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-6">
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-6 pointer-events-none">
                             <div className="w-24 h-24 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 animate-pulse">
                                 <i data-lucide="upload" style={{width:40, height:40}}></i>
                             </div>
                             <div className="text-center">
                                 <h2 className="text-xl font-bold text-zinc-300 mb-2">Projector Video Canvas</h2>
-                                <p className="text-sm max-w-xs opacity-60">Upload MP4 videos to start mapping. Drag corners to warp the shape.</p>
+                                <p className="text-sm max-w-xs opacity-60">Click anywhere to toggle tools. Drag corners to warp videos.</p>
                             </div>
-                            <button onClick={() => fileInputRef.current.click()} className="px-6 py-3 bg-white text-black rounded-full font-bold hover:bg-zinc-200 transition-all active:scale-95">
-                                ADD VIDEOS
-                            </button>
                         </div>
                     )}
                     {videos.map(video => (
-                        <VideoPlayer key={video.id} video={video} isLocked={isLocked}
+                        <VideoPlayer key={video.id} video={video} isLocked={isLocked} containerRef={containerRef}
                             onFocus={() => {
                                 setVideos(prev => prev.map(v => v.id === video.id ? { ...v, zIndex: nextZIndex } : v));
                                 setNextZIndex(prev => prev + 1);
@@ -284,32 +288,50 @@
                             onUpdate={(updates) => setVideos(prev => prev.map(v => v.id === video.id ? { ...v, ...updates } : v))}
                         />
                     ))}
-                    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 px-6 py-4 bg-zinc-900/80 backdrop-blur-2xl rounded-3xl border border-zinc-800 shadow-2xl transition-transform hover:scale-105">
-                        <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/mp4" multiple className="hidden" />
-                        <button onClick={() => fileInputRef.current.click()} className="p-3 bg-white text-black rounded-2xl hover:bg-zinc-200 transition-all active:scale-90 shadow-lg">
-                            <i data-lucide="plus" style={{width:24, height:24}}></i>
-                        </button>
-                        <button onClick={() => setIsLocked(!isLocked)} className={`p-3 rounded-2xl transition-all active:scale-90 ${isLocked ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
-                            <i data-lucide={isLocked ? "lock" : "unlock"} style={{width:24, height:24}}></i>
-                        </button>
-                        <button onClick={() => setVideos([])} className="p-3 bg-zinc-800 text-zinc-400 hover:bg-red-500 hover:text-white rounded-2xl transition-all active:scale-90">
-                            <i data-lucide="trash-2" style={{width:24, height:24}}></i>
-                        </button>
-                        <button onClick={toggleFullscreen} className={`p-3 rounded-2xl transition-all active:scale-90 ${isFullscreen ? 'bg-zinc-100 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
-                            <i data-lucide="maximize-2" style={{width:24, height:24}}></i>
-                        </button>
-                        <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
-                        <div className="flex flex-col items-center px-2">
-                            <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest leading-none mb-1">Active</span>
-                            <span className="text-xl font-mono font-bold leading-none">{videos.length}</span>
-                        </div>
-                    </div>
+                    <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/mp4" multiple className="hidden" />
+                    <AnimatePresence>
+                        {isToolbarVisible && (
+                            <motion.div 
+                                initial={{ y: 100, x: '-50%', opacity: 0 }}
+                                animate={{ y: 0, x: '-50%', opacity: 1 }}
+                                exit={{ y: 100, x: '-50%', opacity: 0 }}
+                                style={{ left: '50%' }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute bottom-8 flex items-center gap-4 bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 p-4 rounded-3xl shadow-2xl z-[9999]"
+                            >
+                                <button onClick={() => fileInputRef.current.click()} className="p-3 bg-white text-black rounded-2xl hover:bg-zinc-200 transition-all active:scale-90 shadow-lg">
+                                    <i data-lucide="plus" style={{width:24, height:24}}></i>
+                                </button>
+                                <button onClick={() => setIsLocked(!isLocked)} className={`p-3 rounded-2xl transition-all active:scale-90 ${isLocked ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
+                                    <i data-lucide={isLocked ? "lock" : "unlock"} style={{width:24, height:24}}></i>
+                                </button>
+                                <button onClick={() => confirm('Clear all?') && setVideos([])} className="p-3 bg-zinc-800 text-zinc-400 hover:bg-red-500 hover:text-white rounded-2xl transition-all active:scale-90">
+                                    <i data-lucide="trash-2" style={{width:24, height:24}}></i>
+                                </button>
+                                <button onClick={toggleFullscreen} className={`p-3 rounded-2xl transition-all active:scale-90 ${isFullscreen ? 'bg-zinc-100 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
+                                    <i data-lucide="maximize-2" style={{width:24, height:24}}></i>
+                                </button>
+                                <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
+                                <div className="flex flex-col items-center px-2">
+                                    <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest leading-none mb-1">Active</span>
+                                    <span className="text-xl font-mono font-bold leading-none">{videos.length}</span>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             );
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+
+        // Forcibly unregister any existing service workers to fix caching issues
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(registrations => {
+                for(let registration of registrations) registration.unregister();
+            });
+        }
     </script>
 </body>
 </html>
