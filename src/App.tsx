@@ -76,7 +76,27 @@ export default function App() {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [nextZIndex, setNextZIndex] = useState(1);
   const [isLocked, setIsLocked] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -162,7 +182,7 @@ export default function App() {
   };
 
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden font-sans text-white select-none">
+    <div ref={containerRef} className="relative w-full h-screen bg-black overflow-hidden font-sans text-white select-none">
       {/* Background Grid */}
       <div className="absolute inset-0 opacity-5 pointer-events-none" 
            style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
@@ -210,6 +230,14 @@ export default function App() {
           title="Clear All"
         >
           <Trash2 size={24} />
+        </button>
+
+        <button
+          onClick={toggleFullscreen}
+          className={`p-3 rounded-2xl transition-all active:scale-90 ${isFullscreen ? 'bg-zinc-100 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+          title="Toggle Fullscreen"
+        >
+          <Maximize2 size={24} />
         </button>
 
         <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
