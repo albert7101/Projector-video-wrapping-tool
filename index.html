@@ -1,20 +1,315 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Projector Video Canvas</title>
-    <meta name="description" content="Warp and map videos to any surface with this projector canvas tool." />
-  </head>
-  <body class="bg-black">
-    <noscript>
-      <div style="color: white; text-align: center; padding: 50px; font-family: sans-serif;">
-        <h1>JavaScript Required</h1>
-        <p>This app requires JavaScript to run. Please enable it in your browser settings.</p>
-      </div>
-    </noscript>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Projector Video Canvas (Standalone)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React and ReactDOM CDNs -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { background-color: black; margin: 0; overflow: hidden; color: white; font-family: sans-serif; }
+        .grid-bg {
+            background-image: linear-gradient(#ffffff05 1px, transparent 1px), linear-gradient(90deg, #ffffff05 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+        /* Hide scrollbars */
+        ::-webkit-scrollbar { display: none; }
+        * { scrollbar-width: none; }
+    </style>
+</head>
+<body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
 
+    <script type="text/babel">
+        const { useState, useRef, useEffect, useMemo } = React;
+
+        // --- Math Helper for Perspective Transform ---
+        function getPerspectiveTransform(src, dst) {
+            const p1 = src;
+            const p2 = dst;
+            const a = [
+                [p1[0].x, p1[0].y, 1, 0, 0, 0, -p2[0].x * p1[0].x, -p2[0].x * p1[0].y],
+                [0, 0, 0, p1[0].x, p1[0].y, 1, -p2[0].y * p1[0].x, -p2[0].y * p1[0].y],
+                [p1[1].x, p1[1].y, 1, 0, 0, 0, -p2[1].x * p1[1].x, -p2[1].x * p1[1].y],
+                [0, 0, 0, p1[1].x, p1[1].y, 1, -p2[1].y * p1[1].x, -p2[1].y * p1[1].y],
+                [p1[2].x, p1[2].y, 1, 0, 0, 0, -p2[2].x * p1[2].x, -p2[2].x * p1[2].y],
+                [0, 0, 0, p1[2].x, p1[2].y, 1, -p2[2].y * p1[2].x, -p2[2].y * p1[2].y],
+                [p1[3].x, p1[3].y, 1, 0, 0, 0, -p2[3].x * p1[3].x, -p2[3].x * p1[3].y],
+                [0, 0, 0, p1[3].x, p1[3].y, 1, -p2[3].y * p1[3].x, -p2[3].y * p1[3].y]
+            ];
+            const b = [p2[0].x, p2[0].y, p2[1].x, p2[1].y, p2[2].x, p2[2].y, p2[3].x, p2[3].y];
+            const n = 8;
+            for (let i = 0; i < n; i++) {
+                let max = i;
+                for (let j = i + 1; j < n; j++) if (Math.abs(a[j][i]) > Math.abs(a[max][i])) max = j;
+                [a[i], a[max]] = [a[max], a[i]];
+                [b[i], b[max]] = [b[max], b[i]];
+                for (let j = i + 1; j < n; j++) {
+                    const c = a[j][i] / a[i][i];
+                    for (let k = i; k < n; k++) a[j][k] -= c * a[i][k];
+                    b[j] -= c * b[i];
+                }
+            }
+            const x = new Array(n);
+            for (let i = n - 1; i >= 0; i--) {
+                let sum = 0;
+                for (let j = i + 1; j < n; j++) sum += a[i][j] * x[j];
+                x[i] = (b[i] - sum) / a[i][i];
+            }
+            return [
+                x[0], x[3], 0, x[6],
+                x[1], x[4], 0, x[7],
+                0, 0, 1, 0,
+                x[2], x[5], 0, 1
+            ];
+        }
+
+        // --- Video Player Component ---
+        const VideoPlayer = ({ video, isLocked, onRemove, onReset, onUpdate, onFocus }) => {
+            const videoRef = useRef(null);
+            const [isHovered, setIsHovered] = useState(false);
+            const [activeHandle, setActiveHandle] = useState(null);
+
+            const { matrix } = useMemo(() => {
+                const srcPoints = [
+                    { x: 0, y: 0 },
+                    { x: video.originalWidth, y: 0 },
+                    { x: video.originalWidth, y: video.originalHeight },
+                    { x: 0, y: video.originalHeight }
+                ];
+                const m = getPerspectiveTransform(srcPoints, video.corners);
+                return { matrix: `matrix3d(${m.join(',')})` };
+            }, [video.corners, video.originalWidth, video.originalHeight]);
+
+            useEffect(() => {
+                if (videoRef.current) {
+                    if (video.isPaused) videoRef.current.pause();
+                    else videoRef.current.play().catch(() => {});
+                    videoRef.current.muted = video.isMuted;
+                }
+            }, [video.isPaused, video.isMuted]);
+
+            useEffect(() => {
+                lucide.createIcons();
+            }, [isHovered, video.isPaused, video.isMuted]);
+
+            const handleCornerDrag = (index, e) => {
+                if (isLocked) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onFocus();
+                setActiveHandle(index);
+                const onMove = (moveEvent) => {
+                    const clientX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
+                    const clientY = moveEvent.touches ? moveEvent.touches[0].clientY : moveEvent.clientY;
+                    const newCorners = [...video.corners];
+                    newCorners[index] = { x: clientX, y: clientY };
+                    onUpdate({ corners: newCorners });
+                };
+                const onUp = () => {
+                    setActiveHandle(null);
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('mouseup', onUp);
+                    window.removeEventListener('touchmove', onMove);
+                    window.removeEventListener('touchend', onUp);
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+                window.addEventListener('touchmove', onMove, { passive: false });
+                window.addEventListener('touchend', onUp);
+            };
+
+            const handleBodyDrag = (e) => {
+                if (isLocked) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onFocus();
+                const startX = e.touches ? e.touches[0].clientX : e.clientX;
+                const startY = e.touches ? e.touches[0].clientY : e.clientY;
+                const initialCorners = [...video.corners];
+                const onMove = (moveEvent) => {
+                    const currentX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
+                    const currentY = moveEvent.touches ? moveEvent.touches[0].clientY : moveEvent.clientY;
+                    const dx = currentX - startX;
+                    const dy = currentY - startY;
+                    const newCorners = initialCorners.map(p => ({ x: p.x + dx, y: p.y + dy }));
+                    onUpdate({ corners: newCorners });
+                };
+                const onUp = () => {
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('mouseup', onUp);
+                    window.removeEventListener('touchmove', onMove);
+                    window.removeEventListener('touchend', onUp);
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+                window.addEventListener('touchmove', onMove, { passive: false });
+                window.addEventListener('touchend', onUp);
+            };
+
+            return (
+                <div style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', zIndex: video.zIndex, pointerEvents: 'none' }}
+                     onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+                    <div style={{ position: 'absolute', width: video.originalWidth, height: video.originalHeight, transform: matrix, transformOrigin: '0 0', overflow: 'hidden', pointerEvents: isLocked ? 'none' : 'auto', cursor: isLocked ? 'default' : 'move' }}
+                         onMouseDown={handleBodyDrag} onTouchStart={handleBodyDrag}>
+                        <video ref={videoRef} src={video.url} className="w-full h-full object-fill pointer-events-none" loop muted={video.isMuted} playsInline />
+                        <div className={`absolute inset-0 bg-black/40 flex flex-col justify-center items-center gap-10 transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+                            <div className="flex gap-8">
+                                <button onClick={(e) => { e.stopPropagation(); onUpdate({ isPaused: !video.isPaused }); }} className="p-10 bg-white/20 backdrop-blur-2xl rounded-full hover:bg-white/40 transition-all active:scale-90 shadow-2xl border border-white/10">
+                                    <i data-lucide={video.isPaused ? "play" : "pause"} style={{width:64, height:64, fill:'currentColor'}}></i>
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); onUpdate({ isMuted: !video.isMuted }); }} className="p-10 bg-white/20 backdrop-blur-2xl rounded-full hover:bg-white/40 transition-all active:scale-90 shadow-2xl border border-white/10">
+                                    <i data-lucide={video.isMuted ? "volume-x" : "volume-2"} style={{width:64, height:64}}></i>
+                                </button>
+                            </div>
+                            <div className="flex gap-4">
+                                <button onClick={(e) => { e.stopPropagation(); onReset(); }} className="px-8 py-4 bg-zinc-800/90 hover:bg-zinc-700 rounded-2xl text-sm font-black flex items-center gap-3 transition-all active:scale-95 shadow-xl border border-zinc-700">
+                                    <i data-lucide="refresh-cw" style={{width:20, height:20}}></i> RESET SHAPE
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="px-8 py-4 bg-red-600/90 hover:bg-red-500 rounded-2xl text-sm font-black flex items-center gap-3 transition-all active:scale-95 shadow-xl border border-red-500">
+                                    <i data-lucide="trash-2" style={{width:20, height:20}}></i> REMOVE
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {!isLocked && video.corners.map((p, i) => (
+                        <div key={i} onMouseDown={(e) => handleCornerDrag(i, e)} onTouchStart={(e) => handleCornerDrag(i, e)}
+                             style={{ position: 'fixed', left: p.x, top: p.y, width: 32, height: 32, transform: 'translate(-50%, -50%)', zIndex: video.zIndex + 10, cursor: 'crosshair', pointerEvents: 'auto' }}
+                             className={`group flex items-center justify-center transition-opacity ${isHovered || activeHandle === i ? 'opacity-100' : 'opacity-0'}`}>
+                            <div className={`w-5 h-5 rounded-full border-2 border-white shadow-lg transition-all ${activeHandle === i ? 'scale-150 bg-amber-500 border-amber-500' : 'bg-white group-hover:scale-125'}`} />
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        // --- Main App Component ---
+        const App = () => {
+            const [videos, setVideos] = useState([]);
+            const [nextZIndex, setNextZIndex] = useState(1);
+            const [isLocked, setIsLocked] = useState(false);
+            const [isFullscreen, setIsFullscreen] = useState(false);
+            const fileInputRef = useRef(null);
+            const containerRef = useRef(null);
+
+            useEffect(() => {
+                lucide.createIcons();
+            }, [videos, isLocked, isFullscreen]);
+
+            const handleFileUpload = (event) => {
+                const files = event.target.files;
+                if (!files) return;
+                Array.from(files).forEach((file) => {
+                    if (file.type.startsWith('video/')) {
+                        const videoElement = document.createElement('video');
+                        videoElement.src = URL.createObjectURL(file);
+                        videoElement.onloadedmetadata = () => {
+                            const w = videoElement.videoWidth / 2;
+                            const h = videoElement.videoHeight / 2;
+                            const centerX = window.innerWidth / 2;
+                            const centerY = window.innerHeight / 2;
+                            const newVideo = {
+                                id: Math.random().toString(36).substr(2, 9),
+                                url: videoElement.src,
+                                corners: [
+                                    { x: centerX - w/2, y: centerY - h/2 },
+                                    { x: centerX + w/2, y: centerY - h/2 },
+                                    { x: centerX + w/2, y: centerY + h/2 },
+                                    { x: centerX - w/2, y: centerY + h/2 }
+                                ],
+                                zIndex: nextZIndex,
+                                isPaused: false,
+                                isMuted: true,
+                                originalWidth: videoElement.videoWidth,
+                                originalHeight: videoElement.videoHeight
+                            };
+                            setVideos(prev => [...prev, newVideo]);
+                            setNextZIndex(prev => prev + 1);
+                        };
+                    }
+                });
+            };
+
+            const toggleFullscreen = () => {
+                if (!document.fullscreenElement) {
+                    containerRef.current.requestFullscreen().catch(e => console.error(e));
+                    setIsFullscreen(true);
+                } else {
+                    document.exitFullscreen();
+                    setIsFullscreen(false);
+                }
+            };
+
+            return (
+                <div ref={containerRef} className="relative w-full h-screen bg-black overflow-hidden font-sans text-white select-none">
+                    <div className="absolute inset-0 opacity-5 pointer-events-none grid-bg" />
+                    {videos.length === 0 && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-6">
+                            <div className="w-24 h-24 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 animate-pulse">
+                                <i data-lucide="upload" style={{width:40, height:40}}></i>
+                            </div>
+                            <div className="text-center">
+                                <h2 className="text-xl font-bold text-zinc-300 mb-2">Projector Video Canvas</h2>
+                                <p className="text-sm max-w-xs opacity-60">Upload MP4 videos to start mapping. Drag corners to warp the shape.</p>
+                            </div>
+                            <button onClick={() => fileInputRef.current.click()} className="px-6 py-3 bg-white text-black rounded-full font-bold hover:bg-zinc-200 transition-all active:scale-95">
+                                ADD VIDEOS
+                            </button>
+                        </div>
+                    )}
+                    {videos.map(video => (
+                        <VideoPlayer key={video.id} video={video} isLocked={isLocked}
+                            onFocus={() => {
+                                setVideos(prev => prev.map(v => v.id === video.id ? { ...v, zIndex: nextZIndex } : v));
+                                setNextZIndex(prev => prev + 1);
+                            }}
+                            onRemove={() => setVideos(prev => prev.filter(v => v.id !== video.id))}
+                            onReset={() => {
+                                const w = video.originalWidth / 2;
+                                const h = video.originalHeight / 2;
+                                const centerX = window.innerWidth / 2;
+                                const centerY = window.innerHeight / 2;
+                                setVideos(prev => prev.map(v => v.id === video.id ? { ...v, corners: [
+                                    { x: centerX - w/2, y: centerY - h/2 }, { x: centerX + w/2, y: centerY - h/2 },
+                                    { x: centerX + w/2, y: centerY + h/2 }, { x: centerX - w/2, y: centerY + h/2 }
+                                ]} : v));
+                            }}
+                            onUpdate={(updates) => setVideos(prev => prev.map(v => v.id === video.id ? { ...v, ...updates } : v))}
+                        />
+                    ))}
+                    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 px-6 py-4 bg-zinc-900/80 backdrop-blur-2xl rounded-3xl border border-zinc-800 shadow-2xl transition-transform hover:scale-105">
+                        <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/mp4" multiple className="hidden" />
+                        <button onClick={() => fileInputRef.current.click()} className="p-3 bg-white text-black rounded-2xl hover:bg-zinc-200 transition-all active:scale-90 shadow-lg">
+                            <i data-lucide="plus" style={{width:24, height:24}}></i>
+                        </button>
+                        <button onClick={() => setIsLocked(!isLocked)} className={`p-3 rounded-2xl transition-all active:scale-90 ${isLocked ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
+                            <i data-lucide={isLocked ? "lock" : "unlock"} style={{width:24, height:24}}></i>
+                        </button>
+                        <button onClick={() => setVideos([])} className="p-3 bg-zinc-800 text-zinc-400 hover:bg-red-500 hover:text-white rounded-2xl transition-all active:scale-90">
+                            <i data-lucide="trash-2" style={{width:24, height:24}}></i>
+                        </button>
+                        <button onClick={toggleFullscreen} className={`p-3 rounded-2xl transition-all active:scale-90 ${isFullscreen ? 'bg-zinc-100 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
+                            <i data-lucide="maximize-2" style={{width:24, height:24}}></i>
+                        </button>
+                        <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
+                        <div className="flex flex-col items-center px-2">
+                            <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest leading-none mb-1">Active</span>
+                            <span className="text-xl font-mono font-bold leading-none">{videos.length}</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
