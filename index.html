@@ -100,12 +100,9 @@
                 lucide.createIcons();
             }, [isHovered, video.isPaused, video.isMuted]);
 
-            const handleCornerDrag = (index, e) => {
-                if (isLocked) return;
-                e.preventDefault();
-                e.stopPropagation();
-                onFocus();
-                setActiveHandle(index);
+            useEffect(() => {
+                if (activeHandle === null) return;
+
                 const onMove = (moveEvent) => {
                     const clientX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
                     const clientY = moveEvent.touches ? moveEvent.touches[0].clientY : moveEvent.clientY;
@@ -113,20 +110,27 @@
                     const x = clientX - rect.left;
                     const y = clientY - rect.top;
                     const newCorners = [...video.corners];
-                    newCorners[index] = { x, y };
+                    newCorners[activeHandle] = { x, y };
                     onUpdate({ corners: newCorners });
                 };
-                const onUp = () => {
-                    setActiveHandle(null);
-                    window.removeEventListener('mousemove', onMove);
-                    window.removeEventListener('mouseup', onUp);
-                    window.removeEventListener('touchmove', onMove);
-                    window.removeEventListener('touchend', onUp);
-                };
+
                 window.addEventListener('mousemove', onMove);
-                window.addEventListener('mouseup', onUp);
                 window.addEventListener('touchmove', onMove, { passive: false });
-                window.addEventListener('touchend', onUp);
+
+                return () => {
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('touchmove', onMove);
+                };
+            }, [activeHandle, video.corners, onUpdate, containerRef]);
+
+            const handleCornerDrag = (index, e) => {
+                if (isLocked) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onFocus();
+                
+                // Toggle the active handle: if it's already this one, stop. Otherwise, start.
+                setActiveHandle(prev => prev === index ? null : index);
             };
 
             const handleBodyDrag = (e) => {
