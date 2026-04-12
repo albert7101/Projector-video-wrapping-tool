@@ -204,7 +204,26 @@
             const resetBtn = document.createElement('button');
             resetBtn.className = 'action-btn';
             resetBtn.innerHTML = 'RESET';
-            resetBtn.onclick = e => { e.stopPropagation(); const cx = window.innerWidth/2, cy = window.innerHeight/2, w=v.w/4, h=v.h/4; v.corners = [{x:cx-w,y:cy-h},{x:cx+w,y:cy-h},{x:cx+w,y:cy+h},{x:cx-w,y:cy+h}]; updateMediaStyles(v); saveToDB(v); };
+            resetBtn.onclick = e => { 
+                e.stopPropagation(); 
+                const aspectRatio = v.w / v.h;
+                let targetW = window.innerWidth / 4;
+                let targetH = targetW / aspectRatio;
+                if (targetH > window.innerHeight / 4) {
+                    targetH = window.innerHeight / 4;
+                    targetW = targetH * aspectRatio;
+                }
+                const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+                const sw = targetW / 2, sh = targetH / 2;
+                v.corners = [
+                    { x: cx - sw, y: cy - sh },
+                    { x: cx + sw, y: cy - sh },
+                    { x: cx + sw, y: cy + sh },
+                    { x: cx - sw, y: cy + sh }
+                ];
+                updateMediaStyles(v); 
+                saveToDB(v); 
+            };
             
             const delBtn = document.createElement('button');
             delBtn.className = 'action-btn danger';
@@ -312,12 +331,33 @@
                 const onLoaded = () => {
                     const w = isVideo ? el.videoWidth : el.naturalWidth;
                     const h = isVideo ? el.videoHeight : el.naturalHeight;
-                    const cx = window.innerWidth/2, cy = window.innerHeight/2, sw=w/4, sh=h/4;
+                    
+                    // Initial size: quarter of the screen width, maintaining aspect ratio
+                    const aspectRatio = w / h;
+                    let targetW = window.innerWidth / 4;
+                    let targetH = targetW / aspectRatio;
+                    
+                    // Ensure it's not too tall for the screen
+                    if (targetH > window.innerHeight / 4) {
+                        targetH = window.innerHeight / 4;
+                        targetW = targetH * aspectRatio;
+                    }
+
+                    const cx = window.innerWidth / 2;
+                    const cy = window.innerHeight / 2;
+                    const sw = targetW / 2;
+                    const sh = targetH / 2;
+
                     const v = {
                         id: Math.random().toString(36).substr(2,9),
                         type: isVideo ? 'video' : 'image',
                         fileBlob: file,
-                        corners: [{x:cx-sw,y:cy-sh},{x:cx+sw,y:cy-sh},{x:cx+sw,y:cy+h},{x:cx-sw,y:cy+h}],
+                        corners: [
+                            { x: cx - sw, y: cy - sh },
+                            { x: cx + sw, y: cy - sh },
+                            { x: cx + sw, y: cy + sh },
+                            { x: cx - sw, y: cy + sh }
+                        ],
                         zIndex: nextZIndex++,
                         isPaused: false,
                         isMuted: true,
