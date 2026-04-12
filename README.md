@@ -8,6 +8,8 @@ This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/76ba43e8-b026-4daf-9f1c-b3cc6b9dfbd4
 
+https://albert7101.github.io/Projector-video-wrapping-tool/
+
 ## Run Locally
 
 **Prerequisites:**  Node.js
