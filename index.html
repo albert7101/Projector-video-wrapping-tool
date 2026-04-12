@@ -42,6 +42,53 @@
             AnimatePresence: ({children}) => children 
         };
 
+        // --- Database Logic (IndexedDB) ---
+        const DB_NAME = 'ProjectorCanvasDB';
+        const STORE_NAME = 'videos';
+
+        const initDB = () => {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+                request.onsuccess = (e) => resolve(e.target.result);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        };
+
+        const saveVideoToDB = async (videoData) => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(STORE_NAME, 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                // We store the Blob/File directly
+                store.put(videoData);
+                transaction.oncomplete = () => resolve();
+                transaction.onerror = (e) => reject(e.target.error);
+            });
+        };
+
+        const deleteVideoFromDB = async (id) => {
+            const db = await initDB();
+            const transaction = db.transaction(STORE_NAME, 'readwrite');
+            transaction.objectStore(STORE_NAME).delete(id);
+        };
+
+        const getAllVideosFromDB = async () => {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(STORE_NAME, 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        };
+
         // --- Math Helper for Perspective Transform ---
         function getPerspectiveTransform(src, dst) {
             const p1 = src;
@@ -262,12 +309,36 @@
             const [isLocked, setIsLocked] = useState(false);
             const [isFullscreen, setIsFullscreen] = useState(false);
             const [isToolbarVisible, setIsToolbarVisible] = useState(true);
+            const [isInitialLoading, setIsInitialLoading] = useState(true);
             const fileInputRef = useRef(null);
             const containerRef = useRef(null);
 
+            // Load saved videos on mount
+            useEffect(() => {
+                const loadSaved = async () => {
+                    try {
+                        const saved = await getAllVideosFromDB();
+                        if (saved && saved.length > 0) {
+                            const restored = saved.map(v => ({
+                                ...v,
+                                url: URL.createObjectURL(v.fileBlob) // Re-create temporary URL from stored Blob
+                            }));
+                            setVideos(restored);
+                            const maxZ = Math.max(...restored.map(v => v.zIndex), 0);
+                            setNextZIndex(maxZ + 1);
+                        }
+                    } catch (err) {
+                        console.error("Failed to load saved videos:", err);
+                    } finally {
+                        setIsInitialLoading(false);
+                    }
+                };
+                loadSaved();
+            }, []);
+
             useEffect(() => {
                 lucide.createIcons();
-            }, [videos, isLocked, isFullscreen, isToolbarVisible]);
+            }, [videos, isLocked, isFullscreen, isToolbarVisible, isInitialLoading]);
 
             const handleFileUpload = (event) => {
                 const files = event.target.files;
@@ -275,15 +346,18 @@
                 Array.from(files).forEach((file) => {
                     if (file.type.startsWith('video/')) {
                         const videoElement = document.createElement('video');
-                        videoElement.src = URL.createObjectURL(file);
+                        const objectUrl = URL.createObjectURL(file);
+                        videoElement.src = objectUrl;
                         videoElement.onloadedmetadata = () => {
                             const w = videoElement.videoWidth / 2;
                             const h = videoElement.videoHeight / 2;
                             const centerX = window.innerWidth / 2;
                             const centerY = window.innerHeight / 2;
+                            const videoId = Math.random().toString(36).substr(2, 9);
+                            
                             const newVideo = {
-                                id: Math.random().toString(36).substr(2, 9),
-                                url: videoElement.src,
+                                id: videoId,
+                                fileBlob: file, // Store the actual file data
                                 corners: [
                                     { x: centerX - w/2, y: centerY - h/2 },
                                     { x: centerX + w/2, y: centerY - h/2 },
@@ -296,11 +370,53 @@
                                 originalWidth: videoElement.videoWidth,
                                 originalHeight: videoElement.videoHeight
                             };
-                            setVideos(prev => [...prev, newVideo]);
+
+                            setVideos(prev => {
+                                const updated = [...prev, { ...newVideo, url: objectUrl }];
+                                saveVideoToDB(newVideo); // Persist to IndexedDB
+                                return updated;
+                            });
                             setNextZIndex(prev => prev + 1);
                         };
                     }
                 });
+            };
+
+            const updateVideo = (id, updates) => {
+                setVideos(prev => {
+                    const updated = prev.map(v => {
+                        if (v.id === id) {
+                            const newVideo = { ...v, ...updates };
+                            // Persist changes (excluding the temporary URL)
+                            const { url, ...toSave } = newVideo;
+                            saveVideoToDB(toSave);
+                            return newVideo;
+                        }
+                        return v;
+                    });
+                    return updated;
+                });
+            };
+
+            const removeVideo = (id) => {
+                setVideos(prev => {
+                    const video = prev.find(v => v.id === id);
+                    if (video) URL.revokeObjectURL(video.url);
+                    deleteVideoFromDB(id);
+                    return prev.filter(v => v.id !== id);
+                });
+            };
+
+            const clearAll = () => {
+                if (confirm('Clear all videos and saved data?')) {
+                    videos.forEach(v => URL.revokeObjectURL(v.url));
+                    setVideos([]);
+                    // Clear DB
+                    initDB().then(db => {
+                        const transaction = db.transaction(STORE_NAME, 'readwrite');
+                        transaction.objectStore(STORE_NAME).clear();
+                    });
+                }
             };
 
             const toggleFullscreen = () => {
@@ -337,21 +453,22 @@
                     {videos.map(video => (
                         <VideoPlayer key={video.id} video={video} isLocked={isLocked} containerRef={containerRef}
                             onFocus={() => {
-                                setVideos(prev => prev.map(v => v.id === video.id ? { ...v, zIndex: nextZIndex } : v));
-                                setNextZIndex(prev => prev + 1);
+                                const maxZ = Math.max(...videos.map(v => v.zIndex), 0) + 1;
+                                updateVideo(video.id, { zIndex: maxZ });
+                                setNextZIndex(maxZ + 1);
                             }}
-                            onRemove={() => setVideos(prev => prev.filter(v => v.id !== video.id))}
+                            onRemove={() => removeVideo(video.id)}
                             onReset={() => {
                                 const w = video.originalWidth / 2;
                                 const h = video.originalHeight / 2;
                                 const centerX = window.innerWidth / 2;
                                 const centerY = window.innerHeight / 2;
-                                setVideos(prev => prev.map(v => v.id === video.id ? { ...v, corners: [
+                                updateVideo(video.id, { corners: [
                                     { x: centerX - w/2, y: centerY - h/2 }, { x: centerX + w/2, y: centerY - h/2 },
                                     { x: centerX + w/2, y: centerY + h/2 }, { x: centerX - w/2, y: centerY + h/2 }
-                                ]} : v));
+                                ]});
                             }}
-                            onUpdate={(updates) => setVideos(prev => prev.map(v => v.id === video.id ? { ...v, ...updates } : v))}
+                            onUpdate={(updates) => updateVideo(video.id, updates)}
                         />
                     ))}
                     <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/mp4" multiple className="hidden" />
@@ -371,7 +488,7 @@
                                 <button onClick={() => setIsLocked(!isLocked)} className={`p-3 rounded-2xl transition-all active:scale-90 ${isLocked ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
                                     <i data-lucide={isLocked ? "lock" : "unlock"} style={{width:24, height:24}}></i>
                                 </button>
-                                <button onClick={() => confirm('Clear all?') && setVideos([])} className="p-3 bg-zinc-800 text-zinc-400 hover:bg-red-500 hover:text-white rounded-2xl transition-all active:scale-90">
+                                <button onClick={clearAll} className="p-3 bg-zinc-800 text-zinc-400 hover:bg-red-500 hover:text-white rounded-2xl transition-all active:scale-90">
                                     <i data-lucide="trash-2" style={{width:24, height:24}}></i>
                                 </button>
                                 <button onClick={toggleFullscreen} className={`p-3 rounded-2xl transition-all active:scale-90 ${isFullscreen ? 'bg-zinc-100 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
