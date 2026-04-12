@@ -3,96 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Projector Video Canvas</title>
-    <meta name="description" content="Standalone video mapping tool for projectors. Works offline after first load.">
-    <!-- Dependencies (CDNs will be cached by browser for offline use) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <title>Projector Media Canvas (Lite)</title>
     <style>
-        body { background-color: black; margin: 0; overflow: hidden; color: white; font-family: sans-serif; }
-        ::-webkit-scrollbar { display: none; }
-        * { 
-            scrollbar-width: none; 
-            -webkit-tap-highlight-color: transparent;
-            -webkit-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
-            user-select: none;
-        }
-        .no-select { 
-            -webkit-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
-            user-select: none;
-        }
+        :root { --bg: #000; --accent: #f59e0b; --zinc-900: #18181b; --zinc-800: #27272a; --zinc-700: #3f3f46; --zinc-400: #a1a1aa; }
+        body { background: var(--bg); margin: 0; overflow: hidden; color: white; font-family: system-ui, -apple-system, sans-serif; user-select: none; -webkit-user-select: none; }
+        #canvas { position: relative; width: 100vw; height: 100vh; }
+        .media-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+        .media-content { width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+        .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+        .media-container:hover .overlay { opacity: 1; pointer-events: auto; }
+        .handle { position: absolute; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: crosshair; transform: translate(-50%, -50%); z-index: 100; opacity: 0; transition: opacity 0.2s; }
+        .handle::after { content: ''; width: 12px; height: 12px; background: white; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.5); transition: transform 0.2s; }
+        .handle:hover::after, .handle.active::after { transform: scale(1.5); background: var(--accent); border-color: var(--accent); }
+        .media-container:hover ~ .handle, .handle.active { opacity: 1; }
+        
+        #toolbar { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(24,24,27,0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--zinc-800); padding: 12px; border-radius: 24px; display: flex; align-items: center; gap: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); z-index: 1000; transition: transform 0.3s, opacity 0.3s; }
+        #toolbar.hidden { transform: translate(-50%, 100px); opacity: 0; }
+        
+        .btn { background: var(--zinc-800); color: var(--zinc-400); border: none; padding: 12px; border-radius: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .btn:hover { color: white; background: var(--zinc-700); }
+        .btn:active { transform: scale(0.9); }
+        .btn-primary { background: white; color: black; font-weight: bold; padding: 12px 20px; gap: 8px; }
+        .btn-primary:hover { background: #e4e4e7; }
+        .btn.active { background: var(--accent); color: black; }
+        
+        .divider { width: 1px; height: 30px; background: var(--zinc-700); margin: 0 4px; }
+        .stats { display: flex; flex-direction: column; align-items: center; padding: 0 8px; }
+        .stats-label { font-size: 9px; text-transform: uppercase; color: var(--zinc-700); font-weight: 900; letter-spacing: 1px; }
+        .stats-val { font-size: 18px; font-weight: bold; font-family: monospace; }
+        
+        #empty-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--zinc-700); pointer-events: none; text-align: center; }
+        .upload-icon { width: 80px; height: 80px; border-radius: 50%; background: var(--zinc-900); border: 1px solid var(--zinc-800); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+        
+        .control-btn { padding: 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; color: white; cursor: pointer; backdrop-filter: blur(5px); transition: all 0.2s; }
+        .control-btn:hover { background: rgba(255,255,255,0.2); }
+        .action-btn { padding: 10px 20px; background: var(--zinc-800); border: 1px solid var(--zinc-700); border-radius: 12px; color: white; font-size: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .action-btn:hover { background: var(--zinc-700); }
+        .action-btn.danger { background: rgba(220,38,38,0.8); border-color: #dc2626; }
     </style>
 </head>
-<body class="bg-black no-select">
-    <div id="root"></div>
+<body>
+    <div id="canvas"></div>
+    
+    <div id="empty-state">
+        <div class="upload-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+        <h2 style="margin:0; color: #d4d4d8;">Projector Media Canvas (Lite)</h2>
+        <p style="font-size: 14px; opacity: 0.5;">Click anywhere to toggle tools. Optimized for performance.</p>
+    </div>
 
-    <script type="text/babel">
-        const { useState, useRef, useEffect, useMemo } = React;
-        // Framer Motion UMD exports to window.Motion
-        const { motion, AnimatePresence } = window.Motion || window.FramerMotion || { 
-            motion: { div: "div", button: "button" }, 
-            AnimatePresence: ({children}) => children 
-        };
+    <div id="toolbar">
+        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            ADD MEDIA
+        </button>
+        <div class="divider"></div>
+        <button id="lock-btn" class="btn" title="Lock Layout">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </button>
+        <button class="btn" onclick="clearAll()" title="Clear All">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        </button>
+        <button id="fs-btn" class="btn" title="Toggle Fullscreen">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        </button>
+        <div class="divider"></div>
+        <div class="stats">
+            <span class="stats-label">Active</span>
+            <span id="count" class="stats-val">0</span>
+        </div>
+    </div>
 
-        // --- Database Logic (IndexedDB) ---
-        const DB_NAME = 'ProjectorCanvasDB';
-        const STORE_NAME = 'videos';
+    <input type="file" id="file-input" hidden multiple accept="video/mp4,image/*">
 
-        const initDB = () => {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, 1);
-                request.onupgradeneeded = (e) => {
-                    const db = e.target.result;
-                    if (!db.objectStoreNames.contains(STORE_NAME)) {
-                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-                    }
-                };
-                request.onsuccess = (e) => resolve(e.target.result);
-                request.onerror = (e) => reject(e.target.error);
-            });
-        };
+    <script>
+        // --- State ---
+        let videos = [];
+        let isLocked = false;
+        let activeHandle = null; // { videoId, cornerIndex }
+        let activeBody = null; // videoId
+        let dragData = null;
+        let nextZIndex = 1;
 
-        const saveVideoToDB = async (videoData) => {
+        const canvas = document.getElementById('canvas');
+        const toolbar = document.getElementById('toolbar');
+        const countEl = document.getElementById('count');
+        const lockBtn = document.getElementById('lock-btn');
+        const emptyState = document.getElementById('empty-state');
+
+        // --- DB ---
+        const DB_NAME = 'ProjectorCanvasDB_Lite';
+        const STORE_NAME = 'media';
+
+        const initDB = () => new Promise((res, rej) => {
+            const req = indexedDB.open(DB_NAME, 1);
+            req.onupgradeneeded = e => e.target.result.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            req.onsuccess = e => res(e.target.result);
+            req.onerror = e => rej(e.target.error);
+        });
+
+        const saveToDB = async v => {
             const db = await initDB();
-            return new Promise((resolve, reject) => {
-                const transaction = db.transaction(STORE_NAME, 'readwrite');
-                const store = transaction.objectStore(STORE_NAME);
-                // We store the Blob/File directly
-                store.put(videoData);
-                transaction.oncomplete = () => resolve();
-                transaction.onerror = (e) => reject(e.target.error);
-            });
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const { url, ...data } = v;
+            tx.objectStore(STORE_NAME).put(data);
         };
 
-        const deleteVideoFromDB = async (id) => {
+        const deleteFromDB = async id => {
             const db = await initDB();
-            const transaction = db.transaction(STORE_NAME, 'readwrite');
-            transaction.objectStore(STORE_NAME).delete(id);
+            db.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).delete(id);
         };
 
-        const getAllVideosFromDB = async () => {
-            const db = await initDB();
-            return new Promise((resolve, reject) => {
-                const transaction = db.transaction(STORE_NAME, 'readonly');
-                const store = transaction.objectStore(STORE_NAME);
-                const request = store.getAll();
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = (e) => reject(e.target.error);
-            });
-        };
-
-        // --- Math Helper for Perspective Transform ---
+        // --- Math ---
         function getPerspectiveTransform(src, dst) {
-            const p1 = src;
-            const p2 = dst;
+            const p1 = src, p2 = dst;
             const a = [
                 [p1[0].x, p1[0].y, 1, 0, 0, 0, -p2[0].x * p1[0].x, -p2[0].x * p1[0].y],
                 [0, 0, 0, p1[0].x, p1[0].y, 1, -p2[0].y * p1[0].x, -p2[0].y * p1[0].y],
@@ -108,8 +131,7 @@
             for (let i = 0; i < n; i++) {
                 let max = i;
                 for (let j = i + 1; j < n; j++) if (Math.abs(a[j][i]) > Math.abs(a[max][i])) max = j;
-                [a[i], a[max]] = [a[max], a[i]];
-                [b[i], b[max]] = [b[max], b[i]];
+                [a[i], a[max]] = [a[max], a[i]]; [b[i], b[max]] = [b[max], b[i]];
                 for (let j = i + 1; j < n; j++) {
                     const c = a[j][i] / a[i][i];
                     for (let k = i; k < n; k++) a[j][k] -= c * a[i][k];
@@ -122,399 +144,210 @@
                 for (let j = i + 1; j < n; j++) sum += a[i][j] * x[j];
                 x[i] = (b[i] - sum) / a[i][i];
             }
-            return [
-                x[0], x[3], 0, x[6],
-                x[1], x[4], 0, x[7],
-                0, 0, 1, 0,
-                x[2], x[5], 0, 1
-            ];
+            return [x[0], x[3], 0, x[6], x[1], x[4], 0, x[7], 0, 0, 1, 0, x[2], x[5], 0, 1];
         }
 
-        // --- Video Player Component ---
-        const VideoPlayer = ({ video, isLocked, containerRef, onRemove, onReset, onUpdate, onFocus }) => {
-            const videoRef = useRef(null);
-            const [isHovered, setIsHovered] = useState(false);
-            const [activeHandle, setActiveHandle] = useState(null);
-            const [isDraggingBody, setIsDraggingBody] = useState(false);
-            const [dragData, setDragData] = useState(null);
-
-            const { matrixStyle } = useMemo(() => {
-                const srcPoints = [
-                    { x: 0, y: 0 },
-                    { x: video.originalWidth, y: 0 },
-                    { x: video.originalWidth, y: video.originalHeight },
-                    { x: 0, y: video.originalHeight }
-                ];
-                const m = getPerspectiveTransform(srcPoints, video.corners);
-                const matrixString = `matrix3d(${m.join(',')})`;
-                return { 
-                    matrixStyle: {
-                        transform: matrixString,
-                        WebkitTransform: matrixString,
-                        msTransform: matrixString,
-                        MozTransform: matrixString
-                    }
-                };
-            }, [video.corners, video.originalWidth, video.originalHeight]);
-
-            useEffect(() => {
-                if (videoRef.current) {
-                    if (video.isPaused) videoRef.current.pause();
-                    else videoRef.current.play().catch(() => {});
-                    videoRef.current.muted = video.isMuted;
-                }
-            }, [video.isPaused, video.isMuted]);
-
-            useEffect(() => {
-                lucide.createIcons();
-            }, [isHovered, video.isPaused, video.isMuted]);
-
-            useEffect(() => {
-                if (activeHandle === null) return;
-
-                const onMove = (moveEvent) => {
-                    const clientX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
-                    const clientY = moveEvent.touches ? moveEvent.touches[0].clientY : moveEvent.clientY;
-                    const rect = containerRef.current.getBoundingClientRect();
-                    const x = clientX - rect.left;
-                    const y = clientY - rect.top;
-                    const newCorners = [...video.corners];
-                    newCorners[activeHandle] = { x, y };
-                    onUpdate({ corners: newCorners });
-                };
-
-                window.addEventListener('mousemove', onMove);
-                window.addEventListener('touchmove', onMove, { passive: false });
-
-                return () => {
-                    window.removeEventListener('mousemove', onMove);
-                    window.removeEventListener('touchmove', onMove);
-                };
-            }, [activeHandle, video.corners, onUpdate, containerRef]);
-
-            useEffect(() => {
-                if (!isDraggingBody || !dragData) return;
-
-                const onMove = (moveEvent) => {
-                    const currentX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
-                    const currentY = moveEvent.touches ? moveEvent.touches[0].clientY : moveEvent.clientY;
-                    
-                    const dx = currentX - dragData.startX;
-                    const dy = currentY - dragData.startY;
-
-                    const newCorners = dragData.initialCorners.map(p => ({
-                        x: p.x + dx,
-                        y: p.y + dy
-                    }));
-                    onUpdate({ corners: newCorners });
-                };
-
-                window.addEventListener('mousemove', onMove);
-                window.addEventListener('touchmove', onMove, { passive: false });
-
-                return () => {
-                    window.removeEventListener('mousemove', onMove);
-                    window.removeEventListener('touchmove', onMove);
-                };
-            }, [isDraggingBody, dragData, onUpdate]);
-
-            const handleCornerDrag = (index, e) => {
-                if (isLocked) return;
-                e.preventDefault();
-                e.stopPropagation();
-                onFocus();
-                
-                // If we were dragging the body, stop that first
-                setIsDraggingBody(false);
-                setDragData(null);
-                
-                // Toggle the active handle: if it's already this one, stop. Otherwise, start.
-                setActiveHandle(prev => prev === index ? null : index);
-            };
-
-            const handleBodyDrag = (e) => {
-                if (isLocked) return;
-                e.preventDefault();
-                e.stopPropagation();
-                onFocus();
-
-                // If we were dragging a corner, stop that first
-                setActiveHandle(null);
-
-                if (!isDraggingBody) {
-                    const startX = e.touches ? e.touches[0].clientX : e.clientX;
-                    const startY = e.touches ? e.touches[0].clientY : e.clientY;
-                    setDragData({ 
-                        startX, 
-                        startY, 
-                        initialCorners: [...video.corners] 
-                    });
-                    setIsDraggingBody(true);
-                } else {
-                    setIsDraggingBody(false);
-                    setDragData(null);
-                }
-            };
-
-            return (
-                <div style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', zIndex: video.zIndex, pointerEvents: 'none' }}
-                     onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
-                    <div style={{ 
-                            position: 'absolute', 
-                            width: video.originalWidth, 
-                            height: video.originalHeight, 
-                            ...matrixStyle,
-                            transformOrigin: '0 0', 
-                            WebkitTransformOrigin: '0 0',
-                            overflow: 'hidden', 
-                            pointerEvents: isLocked ? 'none' : 'auto', 
-                            cursor: isLocked ? 'default' : 'move' 
-                         }}
-                         onMouseDown={handleBodyDrag} onTouchStart={handleBodyDrag}>
-                        <video ref={videoRef} src={video.url} className="w-full h-full object-fill pointer-events-none" loop muted={video.isMuted} playsInline />
-                        <div className={`absolute inset-0 bg-black/40 flex flex-col justify-center items-center gap-10 transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-                            <div className="flex gap-8">
-                                <button onClick={(e) => { e.stopPropagation(); onUpdate({ isPaused: !video.isPaused }); }} className="p-10 bg-white/20 backdrop-blur-2xl rounded-full hover:bg-white/40 transition-all active:scale-90 shadow-2xl border border-white/10">
-                                    <i data-lucide={video.isPaused ? "play" : "pause"} style={{width:64, height:64, fill:'currentColor'}}></i>
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); onUpdate({ isMuted: !video.isMuted }); }} className="p-10 bg-white/20 backdrop-blur-2xl rounded-full hover:bg-white/40 transition-all active:scale-90 shadow-2xl border border-white/10">
-                                    <i data-lucide={video.isMuted ? "volume-x" : "volume-2"} style={{width:64, height:64}}></i>
-                                </button>
-                            </div>
-                            <div className="flex gap-4">
-                                <button onClick={(e) => { e.stopPropagation(); onReset(); }} className="px-8 py-4 bg-zinc-800/90 hover:bg-zinc-700 rounded-2xl text-sm font-black flex items-center gap-3 transition-all active:scale-95 shadow-xl border border-zinc-700">
-                                    <i data-lucide="refresh-cw" style={{width:20, height:20}}></i> RESET SHAPE
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="px-8 py-4 bg-red-600/90 hover:bg-red-500 rounded-2xl text-sm font-black flex items-center gap-3 transition-all active:scale-95 shadow-xl border border-red-500">
-                                    <i data-lucide="trash-2" style={{width:20, height:20}}></i> REMOVE
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    {!isLocked && video.corners.map((p, i) => (
-                        <div key={i} onMouseDown={(e) => handleCornerDrag(i, e)} onTouchStart={(e) => handleCornerDrag(i, e)}
-                             style={{ position: 'absolute', left: p.x, top: p.y, width: 44, height: 44, transform: 'translate(-50%, -50%)', zIndex: video.zIndex + 10, cursor: 'crosshair', pointerEvents: 'auto' }}
-                             className={`group flex items-center justify-center transition-opacity ${isHovered || activeHandle === i ? 'opacity-100' : 'opacity-0'}`}>
-                            <div className={`w-6 h-6 rounded-full border-2 border-white shadow-lg transition-all ${activeHandle === i ? 'scale-150 bg-amber-500 border-amber-500' : 'bg-white group-hover:scale-125'}`} />
-                        </div>
-                    ))}
-                </div>
-            );
-        };
-
-        // --- Main App Component ---
-        const App = () => {
-            const [videos, setVideos] = useState([]);
-            const [nextZIndex, setNextZIndex] = useState(1);
-            const [isLocked, setIsLocked] = useState(false);
-            const [isFullscreen, setIsFullscreen] = useState(false);
-            const [isToolbarVisible, setIsToolbarVisible] = useState(true);
-            const [isInitialLoading, setIsInitialLoading] = useState(true);
-            const fileInputRef = useRef(null);
-            const containerRef = useRef(null);
-
-            // Load saved videos on mount
-            useEffect(() => {
-                const loadSaved = async () => {
-                    try {
-                        const saved = await getAllVideosFromDB();
-                        if (saved && saved.length > 0) {
-                            const restored = saved.map(v => ({
-                                ...v,
-                                url: URL.createObjectURL(v.fileBlob) // Re-create temporary URL from stored Blob
-                            }));
-                            setVideos(restored);
-                            const maxZ = Math.max(...restored.map(v => v.zIndex), 0);
-                            setNextZIndex(maxZ + 1);
-                        }
-                    } catch (err) {
-                        console.error("Failed to load saved videos:", err);
-                    } finally {
-                        setIsInitialLoading(false);
-                    }
-                };
-                loadSaved();
-            }, []);
-
-            useEffect(() => {
-                lucide.createIcons();
-            }, [videos, isLocked, isFullscreen, isToolbarVisible, isInitialLoading]);
-
-            const handleFileUpload = (event) => {
-                const files = event.target.files;
-                if (!files) return;
-                Array.from(files).forEach((file) => {
-                    if (file.type.startsWith('video/')) {
-                        const videoElement = document.createElement('video');
-                        const objectUrl = URL.createObjectURL(file);
-                        videoElement.src = objectUrl;
-                        videoElement.onloadedmetadata = () => {
-                            const w = videoElement.videoWidth / 2;
-                            const h = videoElement.videoHeight / 2;
-                            const centerX = window.innerWidth / 2;
-                            const centerY = window.innerHeight / 2;
-                            const videoId = Math.random().toString(36).substr(2, 9);
-                            
-                            const newVideo = {
-                                id: videoId,
-                                fileBlob: file, // Store the actual file data
-                                corners: [
-                                    { x: centerX - w/2, y: centerY - h/2 },
-                                    { x: centerX + w/2, y: centerY - h/2 },
-                                    { x: centerX + w/2, y: centerY + h/2 },
-                                    { x: centerX - w/2, y: centerY + h/2 }
-                                ],
-                                zIndex: nextZIndex,
-                                isPaused: false,
-                                isMuted: true,
-                                originalWidth: videoElement.videoWidth,
-                                originalHeight: videoElement.videoHeight
-                            };
-
-                            setVideos(prev => {
-                                const updated = [...prev, { ...newVideo, url: objectUrl }];
-                                saveVideoToDB(newVideo); // Persist to IndexedDB
-                                return updated;
-                            });
-                            setNextZIndex(prev => prev + 1);
-                        };
-                    }
-                });
-            };
-
-            const updateVideo = (id, updates) => {
-                setVideos(prev => {
-                    const updated = prev.map(v => {
-                        if (v.id === id) {
-                            const newVideo = { ...v, ...updates };
-                            // Persist changes (excluding the temporary URL)
-                            const { url, ...toSave } = newVideo;
-                            saveVideoToDB(toSave);
-                            return newVideo;
-                        }
-                        return v;
-                    });
-                    return updated;
-                });
-            };
-
-            const removeVideo = (id) => {
-                setVideos(prev => {
-                    const video = prev.find(v => v.id === id);
-                    if (video) URL.revokeObjectURL(video.url);
-                    deleteVideoFromDB(id);
-                    return prev.filter(v => v.id !== id);
-                });
-            };
-
-            const clearAll = () => {
-                if (confirm('Clear all videos and saved data?')) {
-                    videos.forEach(v => URL.revokeObjectURL(v.url));
-                    setVideos([]);
-                    // Clear DB
-                    initDB().then(db => {
-                        const transaction = db.transaction(STORE_NAME, 'readwrite');
-                        transaction.objectStore(STORE_NAME).clear();
-                    });
-                }
-            };
-
-            const toggleFullscreen = () => {
-                const el = containerRef.current;
-                if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement && !document.msFullscreenElement) {
-                    if (el.requestFullscreen) el.requestFullscreen();
-                    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-                    else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
-                    else if (el.msRequestFullscreen) el.msRequestFullscreen();
-                    setIsFullscreen(true);
-                } else {
-                    if (document.exitFullscreen) document.exitFullscreen();
-                    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-                    else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
-                    else if (document.msExitFullscreen) document.msExitFullscreen();
-                    setIsFullscreen(false);
-                }
-            };
-
-            return (
-                <div ref={containerRef} className="relative w-full h-screen bg-black overflow-hidden font-sans text-white select-none"
-                     onClick={() => setIsToolbarVisible(!isToolbarVisible)}>
-                    {videos.length === 0 && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-500 gap-6 pointer-events-none">
-                            <div className="w-24 h-24 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 animate-pulse">
-                                <i data-lucide="upload" style={{width:40, height:40}}></i>
-                            </div>
-                            <div className="text-center">
-                                <h2 className="text-xl font-bold text-zinc-300 mb-2">Projector Video Canvas</h2>
-                                <p className="text-sm max-w-xs opacity-60">Click anywhere to toggle tools. Drag corners to warp videos.</p>
-                            </div>
-                        </div>
-                    )}
-                    {videos.map(video => (
-                        <VideoPlayer key={video.id} video={video} isLocked={isLocked} containerRef={containerRef}
-                            onFocus={() => {
-                                const maxZ = Math.max(...videos.map(v => v.zIndex), 0) + 1;
-                                updateVideo(video.id, { zIndex: maxZ });
-                                setNextZIndex(maxZ + 1);
-                            }}
-                            onRemove={() => removeVideo(video.id)}
-                            onReset={() => {
-                                const w = video.originalWidth / 2;
-                                const h = video.originalHeight / 2;
-                                const centerX = window.innerWidth / 2;
-                                const centerY = window.innerHeight / 2;
-                                updateVideo(video.id, { corners: [
-                                    { x: centerX - w/2, y: centerY - h/2 }, { x: centerX + w/2, y: centerY - h/2 },
-                                    { x: centerX + w/2, y: centerY + h/2 }, { x: centerX - w/2, y: centerY + h/2 }
-                                ]});
-                            }}
-                            onUpdate={(updates) => updateVideo(video.id, updates)}
-                        />
-                    ))}
-                    <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/mp4" multiple className="hidden" />
-                    <AnimatePresence>
-                        {isToolbarVisible && (
-                            <motion.div 
-                                initial={{ y: 100, x: '-50%', opacity: 0 }}
-                                animate={{ y: 0, x: '-50%', opacity: 1 }}
-                                exit={{ y: 100, x: '-50%', opacity: 0 }}
-                                style={{ left: '50%' }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="absolute bottom-8 flex items-center gap-4 bg-zinc-900/90 backdrop-blur-xl border border-zinc-800 p-4 rounded-3xl shadow-2xl z-[9999]"
-                            >
-                                <button onClick={() => fileInputRef.current.click()} className="p-3 bg-white text-black rounded-2xl hover:bg-zinc-200 transition-all active:scale-90 shadow-lg">
-                                    <i data-lucide="plus" style={{width:24, height:24}}></i>
-                                </button>
-                                <button onClick={() => setIsLocked(!isLocked)} className={`p-3 rounded-2xl transition-all active:scale-90 ${isLocked ? 'bg-amber-500 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
-                                    <i data-lucide={isLocked ? "lock" : "unlock"} style={{width:24, height:24}}></i>
-                                </button>
-                                <button onClick={clearAll} className="p-3 bg-zinc-800 text-zinc-400 hover:bg-red-500 hover:text-white rounded-2xl transition-all active:scale-90">
-                                    <i data-lucide="trash-2" style={{width:24, height:24}}></i>
-                                </button>
-                                <button onClick={toggleFullscreen} className={`p-3 rounded-2xl transition-all active:scale-90 ${isFullscreen ? 'bg-zinc-100 text-black' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}>
-                                    <i data-lucide="maximize-2" style={{width:24, height:24}}></i>
-                                </button>
-                                <div className="h-8 w-[1px] bg-zinc-700 mx-2" />
-                                <div className="flex flex-col items-center px-2">
-                                    <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest leading-none mb-1">Active</span>
-                                    <span className="text-xl font-mono font-bold leading-none">{videos.length}</span>
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-
-        // Forcibly unregister any existing service workers to fix caching issues
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(registrations => {
-                for(let registration of registrations) registration.unregister();
+        // --- Rendering ---
+        function updateMediaStyles(v) {
+            const el = document.getElementById(`container-${v.id}`);
+            if (!el) return;
+            const srcPoints = [{x:0,y:0}, {x:v.w,y:0}, {x:v.w,y:v.h}, {x:0,y:v.h}];
+            const m = getPerspectiveTransform(srcPoints, v.corners);
+            const matrix = `matrix3d(${m.join(',')})`;
+            el.style.transform = matrix;
+            el.style.webkitTransform = matrix;
+            el.style.zIndex = v.zIndex;
+            
+            v.corners.forEach((p, i) => {
+                const h = document.getElementById(`handle-${v.id}-${i}`);
+                if (h) { h.style.left = p.x + 'px'; h.style.top = p.y + 'px'; h.style.zIndex = v.zIndex + 1; }
             });
         }
+
+        function createMediaElement(v) {
+            const container = document.createElement('div');
+            container.id = `container-${v.id}`;
+            container.className = 'media-container';
+            container.style.width = v.w + 'px';
+            container.style.height = v.h + 'px';
+            
+            const content = document.createElement(v.type === 'video' ? 'video' : 'img');
+            content.src = v.url;
+            content.className = 'media-content';
+            if (v.type === 'video') { content.loop = true; content.muted = v.isMuted; content.playsInline = true; if (!v.isPaused) content.play(); }
+            
+            const overlay = document.createElement('div');
+            overlay.className = 'overlay';
+            
+            const controls = document.createElement('div');
+            controls.style.display = 'flex';
+            controls.style.gap = '20px';
+            
+            if (v.type === 'video') {
+                const playBtn = document.createElement('button');
+                playBtn.className = 'control-btn';
+                playBtn.innerHTML = v.isPaused ? '<svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>' : '<svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+                playBtn.onclick = e => { e.stopPropagation(); v.isPaused = !v.isPaused; v.isPaused ? content.pause() : content.play(); playBtn.innerHTML = v.isPaused ? '<svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>' : '<svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'; saveToDB(v); };
+                
+                const muteBtn = document.createElement('button');
+                muteBtn.className = 'control-btn';
+                muteBtn.innerHTML = v.isMuted ? '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>' : '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+                muteBtn.onclick = e => { e.stopPropagation(); v.isMuted = !v.isMuted; content.muted = v.isMuted; muteBtn.innerHTML = v.isMuted ? '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/></svg>' : '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>'; saveToDB(v); };
+                
+                controls.append(playBtn, muteBtn);
+            }
+            
+            const actions = document.createElement('div');
+            actions.style.display = 'flex';
+            actions.style.gap = '10px';
+            
+            const resetBtn = document.createElement('button');
+            resetBtn.className = 'action-btn';
+            resetBtn.innerHTML = 'RESET';
+            resetBtn.onclick = e => { e.stopPropagation(); const cx = window.innerWidth/2, cy = window.innerHeight/2, w=v.w/4, h=v.h/4; v.corners = [{x:cx-w,y:cy-h},{x:cx+w,y:cy-h},{x:cx+w,y:cy+h},{x:cx-w,y:cy+h}]; updateMediaStyles(v); saveToDB(v); };
+            
+            const delBtn = document.createElement('button');
+            delBtn.className = 'action-btn danger';
+            delBtn.innerHTML = 'REMOVE';
+            delBtn.onclick = e => { e.stopPropagation(); container.remove(); v.corners.forEach((_,i)=>document.getElementById(`handle-${v.id}-${i}`).remove()); videos = videos.filter(x=>x.id!==v.id); deleteFromDB(v.id); updateCount(); };
+            
+            actions.append(resetBtn, delBtn);
+            overlay.append(controls, actions);
+            container.append(content, overlay);
+            
+            container.onmousedown = container.ontouchstart = e => {
+                if (isLocked) return;
+                e.stopPropagation();
+                v.zIndex = nextZIndex++;
+                updateMediaStyles(v);
+                if (activeHandle) { document.getElementById(`handle-${activeHandle.videoId}-${activeHandle.cornerIndex}`).classList.remove('active'); activeHandle = null; }
+                if (activeBody === v.id) { activeBody = null; dragData = null; }
+                else {
+                    activeBody = v.id;
+                    const p = e.touches ? e.touches[0] : e;
+                    dragData = { startX: p.clientX, startY: p.clientY, initialCorners: v.corners.map(c => ({...c})) };
+                }
+            };
+            
+            canvas.appendChild(container);
+            
+            v.corners.forEach((p, i) => {
+                const h = document.createElement('div');
+                h.id = `handle-${v.id}-${i}`;
+                h.className = 'handle';
+                h.onmousedown = h.ontouchstart = e => {
+                    if (isLocked) return;
+                    e.stopPropagation();
+                    v.zIndex = nextZIndex++;
+                    updateMediaStyles(v);
+                    if (activeBody) activeBody = null;
+                    if (activeHandle && activeHandle.videoId === v.id && activeHandle.cornerIndex === i) {
+                        h.classList.remove('active'); activeHandle = null;
+                    } else {
+                        if (activeHandle) document.getElementById(`handle-${activeHandle.videoId}-${activeHandle.cornerIndex}`).classList.remove('active');
+                        activeHandle = { videoId: v.id, cornerIndex: i };
+                        h.classList.add('active');
+                    }
+                };
+                canvas.appendChild(h);
+            });
+            
+            updateMediaStyles(v);
+        }
+
+        // --- Interactions ---
+        window.onmousemove = window.ontouchmove = e => {
+            if (isLocked) return;
+            const p = e.touches ? e.touches[0] : e;
+            if (activeHandle) {
+                const v = videos.find(x => x.id === activeHandle.videoId);
+                v.corners[activeHandle.cornerIndex] = { x: p.clientX, y: p.clientY };
+                updateMediaStyles(v);
+            } else if (activeBody && dragData) {
+                const v = videos.find(x => x.id === activeBody);
+                const dx = p.clientX - dragData.startX;
+                const dy = p.clientY - dragData.startY;
+                v.corners = dragData.initialCorners.map(c => ({ x: c.x + dx, y: c.y + dy }));
+                updateMediaStyles(v);
+            }
+        };
+
+        window.onmouseup = window.ontouchend = () => {
+            if (activeHandle) saveToDB(videos.find(x => x.id === activeHandle.videoId));
+            if (activeBody) saveToDB(videos.find(x => x.id === activeBody));
+        };
+
+        document.body.onclick = () => toolbar.classList.toggle('hidden');
+        toolbar.onclick = e => e.stopPropagation();
+
+        function updateCount() {
+            countEl.innerText = videos.length;
+            emptyState.style.display = videos.length ? 'none' : 'flex';
+        }
+
+        function clearAll() {
+            if (!confirm('Clear all?')) return;
+            videos.forEach(v => {
+                document.getElementById(`container-${v.id}`).remove();
+                v.corners.forEach((_,i) => document.getElementById(`handle-${v.id}-${i}`).remove());
+            });
+            videos = [];
+            initDB().then(db => db.transaction(STORE_NAME, 'readwrite').objectStore(STORE_NAME).clear());
+            updateCount();
+        }
+
+        lockBtn.onclick = () => { isLocked = !isLocked; lockBtn.classList.toggle('active', isLocked); };
+
+        document.getElementById('fs-btn').onclick = () => {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
+        };
+
+        // --- File Handling ---
+        document.getElementById('file-input').onchange = e => {
+            Array.from(e.target.files).forEach(file => {
+                const isVideo = file.type.startsWith('video/');
+                const el = document.createElement(isVideo ? 'video' : 'img');
+                const url = URL.createObjectURL(file);
+                const onLoaded = () => {
+                    const w = isVideo ? el.videoWidth : el.naturalWidth;
+                    const h = isVideo ? el.videoHeight : el.naturalHeight;
+                    const cx = window.innerWidth/2, cy = window.innerHeight/2, sw=w/4, sh=h/4;
+                    const v = {
+                        id: Math.random().toString(36).substr(2,9),
+                        type: isVideo ? 'video' : 'image',
+                        fileBlob: file,
+                        corners: [{x:cx-sw,y:cy-sh},{x:cx+sw,y:cy-sh},{x:cx+sw,y:cy+h},{x:cx-sw,y:cy+h}],
+                        zIndex: nextZIndex++,
+                        isPaused: false,
+                        isMuted: true,
+                        w, h, url
+                    };
+                    videos.push(v);
+                    createMediaElement(v);
+                    saveToDB(v);
+                    updateCount();
+                };
+                if (isVideo) { el.onloadedmetadata = onLoaded; el.src = url; }
+                else { el.onload = onLoaded; el.src = url; }
+            });
+        };
+
+        // --- Init ---
+        (async () => {
+            const db = await initDB();
+            const saved = await new Promise(res => {
+                const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).getAll();
+                req.onsuccess = () => res(req.result);
+            });
+            saved.forEach(v => {
+                v.url = URL.createObjectURL(v.fileBlob);
+                videos.push(v);
+                createMediaElement(v);
+                if (v.zIndex >= nextZIndex) nextZIndex = v.zIndex + 1;
+            });
+            updateCount();
+        })();
     </script>
 </body>
 </html>
