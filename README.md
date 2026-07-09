@@ -18,3 +18,5 @@ View your app in AI Studio: https://ai.studio/apps/76ba43e8-b026-4daf-9f1c-b3cc6
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+   
+https://albert7101.github.io/Projector-video-wrapping-tool/
