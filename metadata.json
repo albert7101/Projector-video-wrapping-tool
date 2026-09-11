@@ -1,0 +1,5 @@
+{
+  "name": "Projector Video Canvas",
+  "description": "A flexible video wall application for projectors. Place, move, and resize multiple MP4 videos on a black background.",
+  "requestFramePermissions": []
+}
