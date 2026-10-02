@@ -7,7 +7,7 @@
     <style>
         :root { --bg: #000; --accent: #f59e0b; --zinc-900: #18181b; --zinc-800: #27272a; --zinc-700: #3f3f46; --zinc-400: #a1a1aa; }
         body { background: var(--bg); margin: 0; overflow: hidden; color: white; font-family: system-ui, -apple-system, sans-serif; user-select: none; -webkit-user-select: none; }
-        #canvas { position: relative; width: 100vw; height: 100vh; }
+        #canvas { position: relative; width: 100vw; height: 100vh; touch-action: none; }
         .media-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; contain: layout paint style; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
         .media-content { display: block; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
         .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
@@ -405,6 +405,7 @@
             const container = document.createElement('div');
             container.id = `container-${v.id}`;
             container.className = 'media-container';
+            container.dataset.mediaId = v.id;
             container.style.width = v.renderW + 'px';
             container.style.height = v.renderH + 'px';
             
@@ -435,6 +436,7 @@
             const panel = document.createElement('div');
             panel.id = `controls-${v.id}`;
             panel.className = 'media-controls';
+            panel.dataset.mediaId = v.id;
             panel.onclick = e => e.stopPropagation();
             
             const controls = document.createElement('div');
@@ -538,19 +540,6 @@
             panel.appendChild(actions);
             container.append(content, overlay);
             
-            const startFollowing = e => {
-                if (e.target.closest('button')) return;
-                if (isLocked) return;
-                e.stopPropagation();
-                clearActiveInteraction();
-                v.zIndex = nextZIndex++;
-                updateMediaStyles(v);
-                activeBody = v.id;
-                dragData = { startX: e.clientX, startY: e.clientY, initialCorners: v.corners.map(c => ({...c})) };
-            };
-            container.onclick = startFollowing;
-            panel.onclick = startFollowing;
-            
             canvas.appendChild(container);
             canvas.appendChild(panel);
             
@@ -558,18 +547,8 @@
                 const h = document.createElement('div');
                 h.id = `handle-${v.id}-${i}`;
                 h.className = 'handle';
-                h.onmousedown = h.ontouchstart = e => {
-                    if (isLocked) return;
-                    e.stopPropagation();
-                    v.zIndex = nextZIndex++;
-                    updateMediaStyles(v);
-                    const isSameHandle = activeHandle && activeHandle.videoId === v.id && activeHandle.cornerIndex === i;
-                    clearActiveInteraction();
-                    if (!isSameHandle) {
-                        activeHandle = { videoId: v.id, cornerIndex: i };
-                        h.classList.add('active');
-                    }
-                };
+                h.dataset.mediaId = v.id;
+                h.dataset.cornerIndex = String(i);
                 canvas.appendChild(h);
             });
             
@@ -592,11 +571,45 @@
             return [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }];
         }
 
-        // Finish following on the next canvas click, even outside the media.
-        document.addEventListener('click', e => {
-            if (!activeBody || e.target.closest('#toolbar, button, .handle')) return;
-            clearActiveInteraction();
+        let suppressCanvasClick = false;
+        // Start and stop on pointer press, before moving media can change the
+        // release/click target. Pointer Events also avoid duplicate touch clicks.
+        document.addEventListener('pointerdown', e => {
+            if (e.button !== 0 || e.isPrimary === false) return;
+            suppressCanvasClick = false;
+            if (e.target.closest('#toolbar, button')) return;
+            if (activeBody || activeHandle) {
+                pendingPointer = { x: e.clientX, y: e.clientY };
+                clearActiveInteraction();
+                suppressCanvasClick = true;
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            const target = e.target.closest('.handle, .media-container, .media-controls');
+            if (!target || isLocked) return;
+            const v = videos.find(item => item.id === target.dataset.mediaId);
+            if (!v) return;
+            v.zIndex = nextZIndex++;
+            if (target.classList.contains('handle')) {
+                activeHandle = { videoId: v.id, cornerIndex: Number(target.dataset.cornerIndex) };
+                target.classList.add('active');
+            } else {
+                activeBody = v.id;
+                dragData = { startX: e.clientX, startY: e.clientY, initialCorners: v.corners.map(c => ({ ...c })) };
+            }
+            updateMediaStyles(v);
+            suppressCanvasClick = true;
+            e.preventDefault();
             e.stopPropagation();
+        }, true);
+
+        document.addEventListener('click', e => {
+            if (e.target.closest('#toolbar, button')) return;
+            if (suppressCanvasClick || e.target.closest('.handle, .media-container, .media-controls')) {
+                suppressCanvasClick = false;
+                e.stopPropagation();
+            }
         }, true);
 
         function applyPendingInteraction() {
@@ -626,21 +639,26 @@
             }
         }
 
-        window.onmousemove = window.ontouchmove = e => {
+        window.addEventListener('pointermove', e => {
+            if (e.isPrimary === false) return;
             if (isLocked || (!activeHandle && !activeBody)) return;
-            const p = e.touches ? e.touches[0] : e;
-            pendingPointer = { x: p.clientX, y: p.clientY };
+            pendingPointer = { x: e.clientX, y: e.clientY };
             if (!interactionFrame) interactionFrame = requestAnimationFrame(applyPendingInteraction);
-        };
+        });
 
-        window.onmouseup = window.ontouchend = () => {
+        window.addEventListener('pointerup', () => {
             if (pendingPointer) {
                 cancelAnimationFrame(interactionFrame);
                 applyPendingInteraction();
             }
             if (activeHandle) saveToDB(videos.find(x => x.id === activeHandle.videoId));
             if (activeBody) saveToDB(videos.find(x => x.id === activeBody));
-        };
+        });
+        window.addEventListener('pointercancel', () => clearActiveInteraction());
+        window.addEventListener('blur', () => clearActiveInteraction());
+        window.addEventListener('keydown', e => {
+            if (e.key === 'Escape') clearActiveInteraction();
+        });
 
         document.body.onclick = () => toolbar.classList.toggle('hidden');
         toolbar.onclick = e => e.stopPropagation();
