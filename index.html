@@ -41,6 +41,18 @@
         .action-btn { padding: 10px 20px; background: var(--zinc-800); border: 1px solid var(--zinc-700); border-radius: 12px; color: white; font-size: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; }
         .action-btn:hover { background: var(--zinc-700); }
         .action-btn.danger { background: rgba(220,38,38,0.8); border-color: #dc2626; }
+        .action-btn[aria-pressed="true"] { background: var(--accent); color: black; border-color: var(--accent); }
+        body { cursor: var(--cursor-arrow, default); }
+        .media-container { cursor: var(--cursor-move, move); }
+        .handle { cursor: var(--cursor-crosshair, crosshair); }
+        .btn, .control-btn, .action-btn { cursor: var(--cursor-pointer, pointer); }
+        :root { --control-unit: clamp(1px, 0.069444vw, 3px); }
+        .media-controls { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: calc(16 * var(--control-unit)); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.2s; max-width: calc(100vw - 16px); }
+        .media-container:hover + .media-controls, .media-controls:hover, .media-controls:focus-within { opacity: 1; visibility: visible; pointer-events: auto; }
+        .media-controls .controls-row, .media-controls .actions-row { display: flex; justify-content: center; flex-wrap: wrap; gap: calc(10 * var(--control-unit)); }
+        .media-controls .control-btn { padding: calc(16 * var(--control-unit)); }
+        .media-controls .control-btn svg { display: block; width: calc(32 * var(--control-unit)); height: calc(32 * var(--control-unit)); }
+        .media-controls .action-btn { font-size: calc(14 * var(--control-unit)); padding: calc(12 * var(--control-unit)) calc(20 * var(--control-unit)); min-height: 44px; border-radius: calc(12 * var(--control-unit)); }
     </style>
 </head>
 <body>
@@ -95,6 +107,20 @@
         const countEl = document.getElementById('count');
         const lockBtn = document.getElementById('lock-btn');
         const emptyState = document.getElementById('empty-state');
+
+        // Native SVG cursors keep working in fullscreen without a tracking overlay.
+        function applyWhiteCursors() {
+            const cursor = (shape, x, y, fallback) => {
+                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g fill="#ffffff" stroke="#111111" stroke-width="1.5" stroke-linejoin="round">${shape}</g></svg>`;
+                return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${x} ${y}, ${fallback}`;
+            };
+            const root = document.documentElement.style;
+            root.setProperty('--cursor-arrow', cursor('<path d="M3 2v24l6-6 5 10 5-2-5-10h10z"/>', 3, 2, 'default'));
+            root.setProperty('--cursor-pointer', cursor('<path d="M12 29 5 17q-1-3 2-3l5 4V5q0-4 4-2v11q2-3 4 0 3-2 4 1 4-1 4 3l-2 11z"/>', 14, 3, 'pointer'));
+            root.setProperty('--cursor-move', cursor('<path d="m16 1-5 6h3v7H7v-3l-6 5 6 5v-3h7v7h-3l5 6 5-6h-3v-7h7v3l6-5-6-5v3h-7V7h3z"/>', 16, 16, 'move'));
+            root.setProperty('--cursor-crosshair', cursor('<path d="M14 2h4v10h-4zM14 20h4v10h-4zM2 14h10v4H2zM20 14h10v4H20z"/><circle cx="16" cy="16" r="2"/>', 16, 16, 'crosshair'));
+        }
+        applyWhiteCursors();
 
         // --- DB ---
         const DB_NAME = 'ProjectorCanvasDB_Lite';
@@ -186,7 +212,7 @@
 
         const saveToDB = v => {
             if (!v) return;
-            layoutJournal[v.id] = { corners: v.corners.map(c => ({ ...c })), zIndex: v.zIndex };
+            layoutJournal[v.id] = { corners: v.corners.map(c => ({ ...c })), zIndex: v.zIndex, isMirrored: !!v.isMirrored };
             writeLayoutJournal();
             metadataSaveQueue.set(v.id, v);
             if (!metadataSaveTimer) metadataSaveTimer = setTimeout(flushMetadataSaves, 180);
@@ -276,6 +302,12 @@
             el.style.transform = matrix;
             el.style.webkitTransform = matrix;
             el.style.zIndex = v.zIndex;
+            const panel = document.getElementById(`controls-${v.id}`);
+            if (panel) {
+                panel.style.left = (v.corners.reduce((sum, p) => sum + p.x, 0) / 4) + 'px';
+                panel.style.top = (v.corners.reduce((sum, p) => sum + p.y, 0) / 4) + 'px';
+                panel.style.zIndex = v.zIndex + 1;
+            }
             
             v.corners.forEach((p, i) => {
                 const h = document.getElementById(`handle-${v.id}-${i}`);
@@ -343,6 +375,7 @@
             
             const content = document.createElement(v.type === 'video' ? 'video' : 'img');
             content.className = 'media-content';
+            content.style.transform = v.isMirrored ? 'scaleX(-1)' : 'none';
             if (v.type === 'video') {
                 content.loop = true;
                 content.muted = v.isMuted;
@@ -364,10 +397,13 @@
             
             const overlay = document.createElement('div');
             overlay.className = 'overlay';
+            const panel = document.createElement('div');
+            panel.id = `controls-${v.id}`;
+            panel.className = 'media-controls';
+            panel.onclick = e => e.stopPropagation();
             
             const controls = document.createElement('div');
-            controls.style.display = 'flex';
-            controls.style.gap = '20px';
+            controls.className = 'controls-row';
             
             if (v.type === 'video') {
                 const playBtn = document.createElement('button');
@@ -384,8 +420,7 @@
             }
             
             const actions = document.createElement('div');
-            actions.style.display = 'flex';
-            actions.style.gap = '10px';
+            actions.className = 'actions-row';
             
             const resetBtn = document.createElement('button');
             resetBtn.className = 'action-btn';
@@ -424,6 +459,7 @@
                 URL.revokeObjectURL(v.url);
                 clearActiveInteraction(v.id);
                 container.remove();
+                panel.remove();
                 v.corners.forEach((_,i) => document.getElementById(`handle-${v.id}-${i}`)?.remove());
                 videos = videos.filter(x => x.id !== v.id);
                 metadataSaveQueue.delete(v.id);
@@ -433,8 +469,21 @@
                 updateCount();
             };
             
-            actions.append(resetBtn, delBtn);
-            overlay.append(controls, actions);
+            const mirrorBtn = document.createElement('button');
+            mirrorBtn.className = 'action-btn';
+            mirrorBtn.textContent = 'MIRROR';
+            mirrorBtn.title = 'Mirror horizontally';
+            mirrorBtn.setAttribute('aria-pressed', String(!!v.isMirrored));
+            mirrorBtn.onclick = e => {
+                e.stopPropagation();
+                v.isMirrored = !v.isMirrored;
+                content.style.transform = v.isMirrored ? 'scaleX(-1)' : 'none';
+                mirrorBtn.setAttribute('aria-pressed', String(v.isMirrored));
+                saveToDB(v);
+            };
+            actions.append(resetBtn, mirrorBtn, delBtn);
+            if (v.type === 'video') panel.appendChild(controls);
+            panel.appendChild(actions);
             container.append(content, overlay);
             
             container.onmousedown = container.ontouchstart = e => {
@@ -453,6 +502,7 @@
             };
             
             canvas.appendChild(container);
+            canvas.appendChild(panel);
             
             v.corners.forEach((p, i) => {
                 const h = document.createElement('div');
@@ -538,6 +588,7 @@
                 }
                 URL.revokeObjectURL(v.url);
                 container.remove();
+                document.getElementById(`controls-${v.id}`)?.remove();
                 v.corners.forEach((_,i) => document.getElementById(`handle-${v.id}-${i}`)?.remove());
             });
             videos = [];
