@@ -15,7 +15,7 @@
         .handle { position: absolute; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: crosshair; transform: translate(-50%, -50%); z-index: 100; opacity: 0; transition: opacity 0.2s; }
         .handle::after { content: ''; width: 12px; height: 12px; background: white; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.5); transition: transform 0.2s; }
         .handle:hover::after, .handle.active::after { transform: scale(1.5); background: var(--accent); border-color: var(--accent); }
-        .media-container:hover ~ .handle, .handle.active { opacity: 1; }
+        .media-container:hover ~ .handle, .handle:hover, .handle.active { opacity: 1; }
         
         #toolbar { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: rgba(24,24,27,0.9); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--zinc-800); padding: 12px; border-radius: 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); z-index: 1000; transition: transform 0.3s, opacity 0.3s; }
         #toolbar.hidden { transform: translate(-50%, 100px); opacity: 0; }
@@ -46,13 +46,13 @@
         .media-container { cursor: var(--cursor-move, move); }
         .handle { cursor: var(--cursor-crosshair, crosshair); }
         .btn, .control-btn, .action-btn { cursor: var(--cursor-pointer, pointer); }
-        :root { --control-unit: clamp(1px, 0.069444vw, 3px); }
-        .media-controls { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: calc(16 * var(--control-unit)); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.2s; max-width: calc(100vw - 16px); }
+        :root { --control-unit: clamp(1px, 0.052083vw, 2px); }
+        .media-controls { position: absolute; transform: translate(-50%, -50%) scale(var(--panel-scale, 1)); display: flex; flex-direction: column; align-items: center; gap: calc(10 * var(--control-unit)); opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.2s; width: max-content; }
         .media-container:hover + .media-controls, .media-controls:hover, .media-controls:focus-within { opacity: 1; visibility: visible; pointer-events: auto; }
-        .media-controls .controls-row, .media-controls .actions-row { display: flex; justify-content: center; flex-wrap: wrap; gap: calc(10 * var(--control-unit)); }
-        .media-controls .control-btn { padding: calc(16 * var(--control-unit)); }
-        .media-controls .control-btn svg { display: block; width: calc(32 * var(--control-unit)); height: calc(32 * var(--control-unit)); }
-        .media-controls .action-btn { font-size: calc(14 * var(--control-unit)); padding: calc(12 * var(--control-unit)) calc(20 * var(--control-unit)); min-height: 44px; border-radius: calc(12 * var(--control-unit)); }
+        .media-controls .controls-row, .media-controls .actions-row { display: flex; justify-content: center; gap: calc(6 * var(--control-unit)); }
+        .media-controls .control-btn { padding: calc(10 * var(--control-unit)); }
+        .media-controls .control-btn svg { display: block; width: calc(24 * var(--control-unit)); height: calc(24 * var(--control-unit)); }
+        .media-controls .action-btn { font-size: calc(12 * var(--control-unit)); padding: calc(8 * var(--control-unit)) calc(12 * var(--control-unit)); white-space: nowrap; border-radius: calc(8 * var(--control-unit)); }
     </style>
 </head>
 <body>
@@ -212,7 +212,7 @@
 
         const saveToDB = v => {
             if (!v) return;
-            layoutJournal[v.id] = { corners: v.corners.map(c => ({ ...c })), zIndex: v.zIndex, isMirrored: !!v.isMirrored };
+            layoutJournal[v.id] = { corners: v.corners.map(c => ({ ...c })), zIndex: v.zIndex, isMirrored: !!v.isMirrored, fixedScale: !!v.fixedScale };
             writeLayoutJournal();
             metadataSaveQueue.set(v.id, v);
             if (!metadataSaveTimer) metadataSaveTimer = setTimeout(flushMetadataSaves, 180);
@@ -278,6 +278,43 @@
         }
 
         // --- Rendering ---
+        function getControlsFit(corners, width, height) {
+            const center = {
+                x: corners.reduce((sum, p) => sum + p.x, 0) / 4,
+                y: corners.reduce((sum, p) => sum + p.y, 0) / 4
+            };
+            let scale = 1;
+            // Fit the upright button panel inside all four edges, including
+            // keystone-shaped media, with a little space around the buttons.
+            corners.forEach((a, i) => {
+                const b = corners[(i + 1) % 4];
+                const dx = b.x - a.x, dy = b.y - a.y;
+                const distance = Math.abs(dx * (center.y - a.y) - dy * (center.x - a.x));
+                const extent = Math.abs(dx) * height / 2 + Math.abs(dy) * width / 2;
+                if (extent > 0) scale = Math.min(scale, 0.85 * distance / extent);
+            });
+            return { center, scale };
+        }
+
+        function fitMediaControls(v, panel) {
+            const viewportKey = `${window.innerWidth}:${window.innerHeight}`;
+            if (!panel.controlSize || panel.controlSize.viewportKey !== viewportKey) {
+                panel.controlSize = { width: panel.offsetWidth, height: panel.offsetHeight, viewportKey };
+            }
+            const fit = getControlsFit(v.corners, panel.controlSize.width, panel.controlSize.height);
+            panel.style.left = fit.center.x + 'px';
+            panel.style.top = fit.center.y + 'px';
+            panel.style.setProperty('--panel-scale', String(fit.scale));
+            panel.style.zIndex = v.zIndex + 1;
+        }
+
+        window.addEventListener('resize', () => {
+            videos.forEach(v => {
+                const panel = document.getElementById(`controls-${v.id}`);
+                if (panel) fitMediaControls(v, panel);
+            });
+        });
+
         function getRenderSize(w, h) {
             const maxDimension = 1920;
             const maxPixels = 1920 * 1080;
@@ -304,9 +341,7 @@
             el.style.zIndex = v.zIndex;
             const panel = document.getElementById(`controls-${v.id}`);
             if (panel) {
-                panel.style.left = (v.corners.reduce((sum, p) => sum + p.x, 0) / 4) + 'px';
-                panel.style.top = (v.corners.reduce((sum, p) => sum + p.y, 0) / 4) + 'px';
-                panel.style.zIndex = v.zIndex + 1;
+                fitMediaControls(v, panel);
             }
             
             v.corners.forEach((p, i) => {
@@ -481,7 +516,24 @@
                 mirrorBtn.setAttribute('aria-pressed', String(v.isMirrored));
                 saveToDB(v);
             };
-            actions.append(resetBtn, mirrorBtn, delBtn);
+            const scaleBtn = document.createElement('button');
+            scaleBtn.className = 'action-btn';
+            const updateScaleButton = () => {
+                scaleBtn.textContent = v.fixedScale ? 'FIXED SCALE' : 'FREE CORNERS';
+                scaleBtn.title = v.fixedScale ? 'Keep original aspect ratio when resizing; click for free corners' : 'Move each corner freely; click to keep original aspect ratio';
+                scaleBtn.setAttribute('aria-pressed', String(!!v.fixedScale));
+            };
+            updateScaleButton();
+            scaleBtn.onclick = e => {
+                e.stopPropagation();
+                clearActiveInteraction();
+                v.fixedScale = !v.fixedScale;
+                updateScaleButton();
+                panel.controlSize = null;
+                fitMediaControls(v, panel);
+                saveToDB(v);
+            };
+            actions.append(resetBtn, mirrorBtn, scaleBtn, delBtn);
             if (v.type === 'video') panel.appendChild(controls);
             panel.appendChild(actions);
             container.append(content, overlay);
@@ -525,6 +577,21 @@
         }
 
         // --- Interactions ---
+        function resizeWithFixedScale(v, cornerIndex, pointer) {
+            const anchor = v.corners[(cornerIndex + 2) % 4];
+            const ratio = v.w / v.h;
+            const signX = cornerIndex === 0 || cornerIndex === 3 ? -1 : 1;
+            const signY = cornerIndex < 2 ? -1 : 1;
+            // Project the pointer onto the aspect-ratio diagonal, keeping the
+            // opposite corner anchored and preventing a collapsed rectangle.
+            const width = Math.max(1, (signX * (pointer.x - anchor.x) + signY * (pointer.y - anchor.y) / ratio) / (1 + 1 / (ratio * ratio)));
+            const x = anchor.x + signX * width;
+            const y = anchor.y + signY * width / ratio;
+            const left = Math.min(x, anchor.x), right = Math.max(x, anchor.x);
+            const top = Math.min(y, anchor.y), bottom = Math.max(y, anchor.y);
+            return [{ x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom }];
+        }
+
         // Finish following on the next canvas click, even outside the media.
         document.addEventListener('click', e => {
             if (!activeBody || e.target.closest('#toolbar, button, .handle')) return;
@@ -541,7 +608,11 @@
             if (activeHandle) {
                 const v = videos.find(x => x.id === activeHandle.videoId);
                 if (!v) return clearActiveInteraction();
-                v.corners[activeHandle.cornerIndex] = { x: p.x, y: p.y };
+                if (v.fixedScale) {
+                    v.corners = resizeWithFixedScale(v, activeHandle.cornerIndex, p);
+                } else {
+                    v.corners[activeHandle.cornerIndex] = { x: p.x, y: p.y };
+                }
                 updateMediaStyles(v);
                 saveToDB(v);
             } else if (activeBody && dragData) {
