@@ -486,20 +486,18 @@
             panel.appendChild(actions);
             container.append(content, overlay);
             
-            container.onmousedown = container.ontouchstart = e => {
+            const startFollowing = e => {
                 if (e.target.closest('button')) return;
                 if (isLocked) return;
                 e.stopPropagation();
+                clearActiveInteraction();
                 v.zIndex = nextZIndex++;
                 updateMediaStyles(v);
-                const isSameBody = activeBody === v.id;
-                clearActiveInteraction();
-                if (!isSameBody) {
-                    activeBody = v.id;
-                    const p = e.touches ? e.touches[0] : e;
-                    dragData = { startX: p.clientX, startY: p.clientY, initialCorners: v.corners.map(c => ({...c})) };
-                }
+                activeBody = v.id;
+                dragData = { startX: e.clientX, startY: e.clientY, initialCorners: v.corners.map(c => ({...c})) };
             };
+            container.onclick = startFollowing;
+            panel.onclick = startFollowing;
             
             canvas.appendChild(container);
             canvas.appendChild(panel);
@@ -527,6 +525,13 @@
         }
 
         // --- Interactions ---
+        // Finish following on the next canvas click, even outside the media.
+        document.addEventListener('click', e => {
+            if (!activeBody || e.target.closest('#toolbar, button, .handle')) return;
+            clearActiveInteraction();
+            e.stopPropagation();
+        }, true);
+
         function applyPendingInteraction() {
             interactionFrame = 0;
             if (!pendingPointer) return;
@@ -605,7 +610,7 @@
             updateCount();
         }
 
-        lockBtn.onclick = () => { isLocked = !isLocked; lockBtn.classList.toggle('active', isLocked); };
+        lockBtn.onclick = () => { clearActiveInteraction(); isLocked = !isLocked; lockBtn.classList.toggle('active', isLocked); };
 
         document.getElementById('fs-btn').onclick = () => {
             if (!document.fullscreenElement) document.documentElement.requestFullscreen();
